@@ -1,26 +1,52 @@
-"""Robot configuration classes for crisp_py."""
+"""Configuration classes for robots in CRISP."""
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
+import numpy as np
 import yaml
 
 
 @dataclass
 class RobotConfig:
-    """Base configuration for a robot arm."""
+    """Base configuration for a robot in CRISP.
+
+    Attributes:
+        robot_type: The type of robot (e.g., "franka", "ur").
+        namespace: ROS namespace for the robot.
+        base_frame: The base frame of the robot.
+        end_effector_frame: The end-effector frame of the robot.
+        home_config: Default joint configuration for the home position.
+        target_pose_topic: Topic for publishing target poses.
+        target_joint_topic: Topic for publishing target joint configurations.
+        current_pose_topic: Topic for the current pose.
+        joint_states_topic: Topic for joint states.
+        target_stiffness_topic: Topic for publishing target Cartesian stiffness.
+        target_admittance_stiffness_topic: Topic for admittance stiffness.
+        cartesian_controller_name: Name of the Cartesian controller.
+        cartesian_admittance_controller_name: Name of the admittance controller.
+        joint_controller_name: Name of the joint controller.
+    """
 
     robot_type: str = "generic"
-    home_config: Optional[list[float]] = None
     namespace: str = ""
     base_frame: str = "base_link"
     end_effector_frame: str = "end_effector_link"
+    home_config: Optional[List[float]] = None
 
     target_pose_topic: str = "target_pose"
+    target_joint_topic: str = "target_joint"
     current_pose_topic: str = "current_pose"
     joint_states_topic: str = "joint_states"
-    target_joint_topic: str = "target_joint"
+    target_stiffness_topic: str = "target_stiffness"
+    target_admittance_stiffness_topic: str = "target_admittance_stiffness"
+
+    cartesian_controller_name: str = "cartesian_impedance_controller"
+    cartesian_admittance_controller_name: str = "cartesian_admittance_controller"
+    joint_controller_name: str = "joint_trajectory_controller"
 
     def num_joints(self) -> int:
         """Return the number of joints for this robot."""
@@ -39,14 +65,17 @@ class FrankaConfig(RobotConfig):
     """Configuration for Franka Emika Panda / FR3 arms."""
 
     robot_type: str = "franka"
+    end_effector_frame: str = "fr3_hand_tcp"
 
     def num_joints(self) -> int:
         return 7
 
-    @property
-    def home_joint_config(self) -> list[float]:
-        """Default home joint configuration for Franka arms."""
-        return [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]
+
+@dataclass
+class FrankaAdmittanceConfig(FrankaConfig):
+    """Franka configuration with admittance control enabled."""
+
+    cartesian_controller_name: str = "cartesian_admittance_controller"
 
 
 @dataclass
@@ -54,39 +83,21 @@ class URConfig(RobotConfig):
     """Configuration for Universal Robots arms."""
 
     robot_type: str = "ur"
-    ur_model: str = "ur5e"
+    base_frame: str = "base"
+    end_effector_frame: str = "tool0"
+    ur_type: str = "ur5e"
 
     def num_joints(self) -> int:
         return 6
-
-    @property
-    def home_joint_config(self) -> list[float]:
-        """Default home joint configuration for UR arms."""
-        return [0.0, -1.571, 1.571, -1.571, -1.571, 0.0]
-
-    @property
-    def ur_dh_params(self) -> dict:
-        """DH parameters per UR model."""
-        dh = {
-            "ur5e": {"d1": 0.1625, "a2": -0.425, "a3": -0.3922, "d4": 0.1333, "d5": 0.0997, "d6": 0.0996},
-            "ur7e": {"d1": 0.1807, "a2": -0.4784, "a3": -0.36, "d4": 0.17415, "d5": 0.11985, "d6": 0.11655},
-            "ur10e": {"d1": 0.1807, "a2": -0.6127, "a3": -0.57155, "d4": 0.17415, "d5": 0.11985, "d6": 0.11655},
-        }
-        return dh.get(self.ur_model, dh["ur5e"])
 
 
 def make_robot_config(robot_type: str = "generic", **kwargs) -> RobotConfig:
     """Factory to create a robot configuration based on robot_type."""
     mapping = {
         "franka": FrankaConfig,
+        "franka_admittance": FrankaAdmittanceConfig,
         "ur": URConfig,
     }
     config_cls = mapping.get(robot_type, RobotConfig)
-    return config_cls(**{k: v for k, v in kwargs.items() if k in _config_fields(config_cls)})
-
-
-def _config_fields(cls) -> set:
-    """Return the set of valid field names for a config dataclass."""
-    import dataclasses
-
-    return {f.name for f in dataclasses.fields(cls)}
+    valid = {f.name for f in __import__("dataclasses").fields(config_cls)}
+    return config_cls(**{k: v for k, v in kwargs.items() if k in valid})
