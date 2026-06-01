@@ -66,6 +66,7 @@ class RobotConfig:
 
     use_prefix: bool = False
     use_admittance_controller: bool = False
+    has_effort_feedback: bool = False
 
     def num_joints(self) -> int:
         """Returns the number of joints in the robot."""
