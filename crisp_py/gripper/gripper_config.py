@@ -83,6 +83,8 @@ class GripperConfig:
                 "publish_frequency": config.get("publish_frequency", 30.0),
                 "max_delta": config.get("max_delta", 0.1),
                 "max_joint_delay": config.get("max_joint_delay", 1.0),
+                "use_gripper_command_action": config.get("use_gripper_command_action", False),
+                "max_effort": config.get("max_effort", 10.0),
             }
 
             config_data.update(overrides)
