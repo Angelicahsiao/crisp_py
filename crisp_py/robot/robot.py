@@ -95,6 +95,7 @@ class Robot:
         self._target_pose = None
         self._current_joint = None
         self._current_joint_velocity = None
+        self._current_joint_effort = None
         self._target_joint = None
         self._target_wrench = None
         self._current_twist = None
@@ -307,6 +308,17 @@ class Robot:
                 "The robot has not received any joints yet. Run wait_until_ready() before running anything else."
             )
         return self._current_joint.copy()
+
+    @property
+    def current_joint_effort(self) -> NDArray:
+        """Get the current joint effort (torque/current) of the robot.
+
+        Returns:
+            numpy.ndarray: Copy of current joint efforts, or zeros if not available.
+        """
+        if self._current_joint_effort is None:
+            return np.zeros(self.nq, dtype=np.float32)
+        return self._current_joint_effort.copy()
 
     @property
     def target_joint(self) -> NDArray:
@@ -602,6 +614,8 @@ class Robot:
         """
         self._current_joint = self.ros_msg_to_joint(msg).copy()
         self._current_joint_velocity = self._ros_msg_to_joint_velocity(msg).copy()
+        if self.config.has_effort_feedback and len(msg.effort) == len(msg.position):
+            self._current_joint_effort = self._ros_msg_to_joint_effort(msg).copy()
 
         if self._target_joint is None:
             self._target_joint = self._current_joint.copy()
@@ -693,6 +707,17 @@ class Robot:
                 joint_velocity
             )
         return joint_velocities.astype(np.float32)
+
+    def _ros_msg_to_joint_effort(self, msg: JointState) -> NDArray:
+        """Convert a joint state message to a numpy array of joint efforts."""
+        joint_efforts = np.zeros(self.nq)
+        for joint_name, joint_effort in zip(msg.name, msg.effort):
+            if joint_name.removeprefix(self._prefix) not in self.config.joint_names:
+                continue
+            joint_efforts[self.config.joint_names.index(joint_name.removeprefix(self._prefix))] = (
+                joint_effort
+            )
+        return joint_efforts.astype(np.float32)
 
     def _parse_pose_or_position(
         self, position: List | NDArray | None = None, pose: Pose | None = None
