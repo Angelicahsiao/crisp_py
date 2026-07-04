@@ -45,6 +45,10 @@ class RobotConfig:
     cartesian_impedance_controller_name: str = "cartesian_impedance_controller"
     cartesian_admittance_controller_name: str = "cartesian_admittance_controller"
     joint_trajectory_controller_name: str = "joint_impedance_controller"
+    # ros2_control controller used for homing (FollowJointTrajectory action).
+    # Distinct from joint_trajectory_controller_name, which (despite the name)
+    # is the parameter-client target for the streaming joint controller.
+    home_controller_name: str = "joint_trajectory_controller"
 
     target_admittance_stiffness_topic: str = "target_admittance_stiffness"
 

@@ -77,7 +77,9 @@ class Robot:
 
         self.controller_switcher_client = ControllerSwitcherClient(self.node)
         self.joint_trajectory_controller_client = JointTrajectoryControllerClient(
-            self.node, use_prefix=self.config.use_prefix
+            self.node,
+            use_prefix=self.config.use_prefix,
+            controller_name=self.config.home_controller_name,
         )
         self.cartesian_controller_parameters_client = ParametersClient(
             self.node, target_node=self.config.cartesian_impedance_controller_name
@@ -658,7 +660,7 @@ class Robot:
 
     def home(self, home_config: list[float] | None = None, blocking: bool = True):
         """Home the robot."""
-        self.controller_switcher_client.switch_controller("joint_trajectory_controller")
+        self.controller_switcher_client.switch_controller(self.config.home_controller_name)
         self.joint_trajectory_controller_client.send_joint_config(
             self.config.joint_names,
             self.config.home_config if home_config is None else home_config,
