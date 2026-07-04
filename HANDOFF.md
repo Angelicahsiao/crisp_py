@@ -50,10 +50,11 @@ best one (the sensor registry) rather than adding to the worst:
 | Grippers | single concrete `Gripper` class; variation via config booleans (`use_gripper_command_action`); `MultiDofGripper` added as a parallel standalone class | wants a `GripperBase` + registry so MultiDofGripper and future protocols slot in |
 | Cameras | single concrete `Camera`; hardcoded `CompressedImage` transport (`/compressed` suffix, rgb8) | wants a base class if raw/depth transports are ever needed |
 
-Known small bugs (agreed to fix, still open unless already fixed on main):
-- `Robot.home()` hardcodes the string `"joint_trajectory_controller"` instead of
-  `self.config.joint_trajectory_controller_name` (`robot/robot.py`, around the
-  home() switch call) — breaks robots whose JTC has a different name.
+Known small bugs (agreed to fix):
+- FIXED: `Robot.home()` now uses `config.home_controller_name` (a NEW field —
+  `joint_trajectory_controller_name` could not be reused because, despite its
+  name, it is the parameter-client target of the streaming joint controller).
+  `JointTrajectoryControllerClient` takes `controller_name`.
 - Broadcaster detection by `name.endswith("broadcaster")` in
   `control/controller_switcher.py`.
 - Duplicated crop/resize validation between `CameraConfig.__post_init__` and
