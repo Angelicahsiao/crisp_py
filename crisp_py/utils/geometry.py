@@ -16,6 +16,7 @@ class OrientationRepresentation(Enum):
     QUATERNION = "quaternion"
     EULER = "euler"
     ANGLE_AXIS = "angle_axis"
+    ROTATION_6D = "rotation_6d"
 
 
 @dataclass
@@ -109,6 +110,18 @@ class Pose:
         angle_axis = self.orientation.as_rotvec()
         return np.concatenate([self.position, angle_axis], axis=0)
 
+    def to_pos_rotation_6d_array(self) -> np.ndarray:
+        """Convert Pose to a 9D array (position + 6D rotation).
+
+        The 6D rotation representation is the first two rows of the rotation
+        matrix, flattened: [R00, R01, R02, R10, R11, R12] — the pytorch3d /
+        UMI convention. It is continuous (Zhou et al. 2019) and preferred for
+        learning. Decode via Gram-Schmidt on the two 3-vectors.
+        """
+        mat = self.orientation.as_matrix()
+        rot6d = mat[:2, :].flatten()
+        return np.concatenate([self.position, rot6d], axis=0)
+
     def to_array(
         self, representation: OrientationRepresentation = OrientationRepresentation.EULER
     ) -> np.ndarray:
@@ -127,6 +140,8 @@ class Pose:
             return self.to_pos_quat_array()
         elif representation == OrientationRepresentation.ANGLE_AXIS:
             return self.to_pos_angle_axis_array()
+        elif representation == OrientationRepresentation.ROTATION_6D:
+            return self.to_pos_rotation_6d_array()
         else:
             raise ValueError(f"Unknown orientation representation: {representation}")
 
