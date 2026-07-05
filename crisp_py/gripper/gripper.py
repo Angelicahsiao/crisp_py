@@ -345,7 +345,7 @@ class Gripper:
         Args:
             block: if block is set to True, then we wait until a response arrives.
         """
-        if not self.reboot_client.service_is_ready:
+        if not self.reboot_client.service_is_ready():
             raise RuntimeError(
                 f"Trying to reboot the client but the service {self.config.reboot_service} is not available. Is the gripper running? Does your gripper support rebooting?"
             )
@@ -378,7 +378,7 @@ class Gripper:
             enable: whether or not we enable the torque holding in the motor.
             block: if block is set to True, then we wait until a response arrives.
         """
-        if not self.enable_torque_client.service_is_ready:
+        if not self.enable_torque_client.service_is_ready():
             raise RuntimeError(
                 f"Trying to enable torque the client but the service {self.config.enable_torque_service} is not available. Is the gripper running? Does your gripper support toggling reboot?"
             )

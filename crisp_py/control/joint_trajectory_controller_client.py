@@ -43,6 +43,8 @@ class JointTrajectoryControllerClient(ActionClient):
 
     Args:
         node (Node): The ROS2 node that will own this client.
+        use_prefix (bool): Prefix joint names with the node namespace.
+        controller_name (str): Controller exposing follow_joint_trajectory.
     """
 
     def __init__(

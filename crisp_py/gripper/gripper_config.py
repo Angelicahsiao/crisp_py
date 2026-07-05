@@ -68,25 +68,9 @@ class GripperConfig:
         with open(full_path, "r") as file:
             config = yaml.safe_load(file) or {}
 
-            config_data = {
-                "min_value": config.get("min_value", 0.0),
-                "max_value": config.get("max_value", 1.0),
-                "command_topic": config.get(
-                    "command_topic", "gripper_position_controller/commands"
-                ),
-                "joint_state_topic": config.get("joint_state_topic", "joint_states"),
-                "reboot_service": config.get("reboot_service", "reboot_gripper"),
-                "enable_torque_service": config.get(
-                    "enable_torque_service", "dynamixel_hardware_interface/set_dxl_torque"
-                ),
-                "index": config.get("index", 0),
-                "publish_frequency": config.get("publish_frequency", 30.0),
-                "max_delta": config.get("max_delta", 0.1),
-                "max_joint_delay": config.get("max_joint_delay", 1.0),
-                "use_gripper_command_action": config.get("use_gripper_command_action", False),
-                "max_effort": config.get("max_effort", 10.0),
-            }
-
-            config_data.update(overrides)
-
-        return cls(**config_data)
+        # cls(**data): dataclass defaults apply for absent keys, and unknown
+        # YAML keys raise instead of being silently dropped (the parity trap
+        # documented in HANDOFF.md — the old manual dict lost fields twice).
+        # Same behavior as Gripper.from_yaml, which builds the config directly.
+        config.update(overrides)
+        return cls(**config)

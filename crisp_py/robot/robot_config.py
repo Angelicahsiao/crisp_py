@@ -20,7 +20,12 @@ class RobotConfig:
         base_frame (str): Name of the robot's base frame
         target_frame (str): Name of the robot's end-effector frame
         default_controller (str): Name of the default controller to use
-        cartesian_impedance_controller_name (str): Name of the Cartesian impedance controller
+        cartesian_impedance_controller_name (str): Name of the Cartesian impedance controller.
+        joint_trajectory_controller_name (str): Parameter-client target node of the
+            STREAMING joint controller (misleading name kept for compatibility).
+        home_controller_name (str): ros2_control controller used for homing
+            (FollowJointTrajectory action).
+        has_effort_feedback (bool): Whether JointState messages carry usable effort values.
         target_pose_topic (str): Topic name for publishing target poses
         target_joint_topic (str): Topic name for publishing target joint states
         target_stiffness_topic (str): Topic name for publishing target stiffness
