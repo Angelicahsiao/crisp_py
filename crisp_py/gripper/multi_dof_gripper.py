@@ -274,10 +274,18 @@ class MultiDofGripper:
             rclpy.shutdown()
 
     def reboot(self, block: bool = False):
+        if getattr(self.config, "torque_interface", None) is False:
+            return
         if not self.reboot_client.service_is_ready():
-            raise RuntimeError(
-                f"Reboot service {self.config.reboot_service} is not available."
+            if getattr(self.config, "torque_interface", None) is True:
+                raise RuntimeError(
+                    f"Reboot service {self.config.reboot_service} is not available "
+                    "although the gripper config declares torque_interface: true."
+                )
+            self.node.get_logger().warning(
+                f"Reboot service {self.config.reboot_service} not available; skipping."
             )
+            return
         if block:
             self.reboot_client.call(Trigger.Request())
         else:
@@ -290,6 +298,8 @@ class MultiDofGripper:
         self._set_torque_holding(enable=False, block=block)
 
     def _set_torque_holding(self, enable: bool, block: bool = False):
+        if getattr(self.config, "torque_interface", None) is False:
+            return
         if not self.enable_torque_client.service_is_ready():
             # The DG3F driver does not expose the dynamixel torque service;
             # warn rather than fail so envs can still run.

@@ -345,10 +345,21 @@ class Gripper:
         Args:
             block: if block is set to True, then we wait until a response arrives.
         """
+        if self.config.torque_interface is False:
+            return
         if not self.reboot_client.service_is_ready():
-            raise RuntimeError(
-                f"Trying to reboot the client but the service {self.config.reboot_service} is not available. Is the gripper running? Does your gripper support rebooting?"
+            if self.config.torque_interface is True:
+                raise RuntimeError(
+                    f"Reboot service {self.config.reboot_service} is not available "
+                    "although the gripper config declares torque_interface: true. "
+                    "Is the gripper running?"
+                )
+            self.node.get_logger().warning(
+                f"Reboot service {self.config.reboot_service} not available — "
+                "skipping (this gripper type likely does not support rebooting; "
+                "set torque_interface: false in the gripper config to silence)."
             )
+            return
 
         if block:
             self.reboot_client.call(Trigger.Request())
@@ -372,16 +383,35 @@ class Gripper:
         self._set_torque_holding(enable=False, block=block)
 
     def _set_torque_holding(self, enable: bool, block: bool = False):
-        """Reboot the gripper if the reboot service is available.
+        """Toggle torque holding if the gripper supports it.
+
+        Torque toggling is a Dynamixel-style capability; grippers driven via
+        GripperCommand actions (e.g. Robotiq) have no such service. Behavior
+        is governed by config.torque_interface:
+          false -> skip silently (declared unsupported)
+          None  -> best-effort: skip with a warning if the service is missing
+          true  -> required: raise if the service is missing
 
         Args:
             enable: whether or not we enable the torque holding in the motor.
             block: if block is set to True, then we wait until a response arrives.
         """
+        if self.config.torque_interface is False:
+            return
         if not self.enable_torque_client.service_is_ready():
-            raise RuntimeError(
-                f"Trying to enable torque the client but the service {self.config.enable_torque_service} is not available. Is the gripper running? Does your gripper support toggling reboot?"
+            if self.config.torque_interface is True:
+                raise RuntimeError(
+                    f"Torque service {self.config.enable_torque_service} is not "
+                    "available although the gripper config declares "
+                    "torque_interface: true. Is the gripper running?"
+                )
+            self.node.get_logger().warning(
+                f"Torque service {self.config.enable_torque_service} not available — "
+                "skipping torque toggle (set torque_interface: false in the gripper "
+                "config if this gripper has no torque interface, or true to make "
+                "this an error)."
             )
+            return
 
         req = SetBool.Request()
         req.data = enable

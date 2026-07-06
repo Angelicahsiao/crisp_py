@@ -41,6 +41,12 @@ class GripperConfig:
     use_gripper_command_action: bool = False
     max_effort: float = 10.0
 
+    # Torque-holding / reboot capability (Dynamixel-style services).
+    #   None (default): best-effort — skip with a warning if unavailable
+    #   false: gripper has no torque interface (e.g. Robotiq, Franka Hand); skip silently
+    #   true: required — raise if the service is missing
+    torque_interface: bool | None = None
+
     @classmethod
     def from_yaml(cls, path: str | Path, **overrides) -> "GripperConfig":  # noqa: ANN003
         """Create a GripperConfig from a YAML configuration file.
