@@ -25,6 +25,7 @@ Example:
     ```
 """
 
+import time
 from typing import Optional
 
 from control_msgs.action import FollowJointTrajectory
@@ -99,7 +100,9 @@ class JointTrajectoryControllerClient(ActionClient):
                 positions=joint_config,
                 velocities=len(joint_config) * [0.0],
                 accelerations=len(joint_config) * [0.0],
-                time_from_start=Duration(seconds=int(time_to_goal), nanoseconds=0).to_msg(),
+                # Preserve the fractional part: int(seconds) would truncate
+                # e.g. 2.5s -> 2s (and <1s -> 0s).
+                time_from_start=Duration(nanoseconds=int(time_to_goal * 1e9)).to_msg(),
             )
         )
         future = self.send_goal_async(self._goal)
@@ -109,14 +112,20 @@ class JointTrajectoryControllerClient(ActionClient):
                 self.node.get_logger().debug(
                     "Waiting for goal answer...", throttle_duration_sec=1.0
                 )
+                time.sleep(0.01)  # avoid pegging a core while the executor spins
 
             goal_handle = future.result()
+            if goal_handle is None or not goal_handle.accepted:
+                raise RuntimeError(
+                    "Joint trajectory goal was rejected by the action server."
+                )
 
             future = goal_handle.get_result_async()
             while not future.done():
                 self.node.get_logger().debug(
                     "Waiting for goal result...", throttle_duration_sec=1.0
                 )
+                time.sleep(0.01)
 
             self.node.get_logger().debug(f"Goal result: {future.result()}")
             return future.result()

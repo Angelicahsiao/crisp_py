@@ -78,10 +78,12 @@ class ParametersClient:
             TimeoutError: If the services are not ready within the timeout period.
         """
         t_start = time.time()
-        while (
-            not self.get_params_client.service_is_ready()
-            and not self.list_params_client.service_is_ready()
-            and not self.set_parameters_client.service_is_ready()
+        # Wait until ALL three services are ready (a single `and` chain of
+        # negations would return as soon as ANY ONE became ready).
+        while not (
+            self.get_params_client.service_is_ready()
+            and self.list_params_client.service_is_ready()
+            and self.set_parameters_client.service_is_ready()
         ):
             time.sleep(0.01)
             if time.time() - t_start > timeout_sec:

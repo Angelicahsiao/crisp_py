@@ -226,8 +226,19 @@ class Camera:
 
     def _callback_current_color_image(self, msg: CompressedImage):
         """Receive and store the current image."""
+        try:
+            image = self.ros_msg_to_image(msg)
+        except Exception as e:
+            # A corrupt/truncated frame (e.g. USB bandwidth glitches) must not
+            # raise inside the executor thread — drop it and keep the last
+            # good image; the staleness monitor flags a persistent outage.
+            self.node.get_logger().warning(
+                f"Dropping undecodable image on {self.config.camera_name}: {e}",
+                throttle_duration_sec=5.0,
+            )
+            return
         self._image_has_changed = True
-        self._current_image = self.ros_msg_to_image(msg)
+        self._current_image = image
 
     def _callback_current_color_info(self, msg: CameraInfo):
         """Receive and store the current camera info."""

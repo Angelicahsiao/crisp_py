@@ -194,7 +194,7 @@ class Gripper:
                 f"{self._prefix}Gripper is not initialized. Call wait_until_ready() first."
             )
             return False
-        if self._normalize(self._value) > 1.05 or self._normalize(self.value) < -0.05:
+        if self._normalize(self._value) > 1.05 or self._normalize(self._value) < -0.05:
             self.node.get_logger().error(
                 f"{self._prefix}Gripper value {self._value} is out of bounds [0.0, 1.0]. Please check the gripper configuration, and eventually calibrate the gripper."
             )
@@ -311,8 +311,21 @@ class Gripper:
         Args:
             msg (JointState): the message containing the joint state.
         """
+        if self._index >= len(msg.position):
+            # Wrong topic / shorter JointState than expected: warn instead of
+            # raising IndexError inside the executor thread (which would kill
+            # the subscription silently). MultiDofGripper guards the same way.
+            self.node.get_logger().warning(
+                f"{self._prefix}JointState has {len(msg.position)} positions but "
+                f"gripper joint index is {self._index} — check the gripper "
+                "joint_state topic/config.",
+                throttle_duration_sec=5.0,
+            )
+            return
         self._value = msg.position[self._index]
-        self._torque = msg.effort[self._index] if msg.effort else None
+        self._torque = (
+            msg.effort[self._index] if len(msg.effort) > self._index else None
+        )
 
     def set_target(self, target: float, *, epsilon: float = 0.1):
         """Grasp with the gripper by setting a target. This can be a position, velocity or effort depending on the active controller.

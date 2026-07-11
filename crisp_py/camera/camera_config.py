@@ -96,12 +96,24 @@ class CameraConfig:
                 raise ValueError("Crop height start must be less than end.")
 
 
-class DummyCameraConfig:
-    """Dummy camera configuration class for testing purposes."""
+@dataclass(kw_only=True)
+class DummyCameraConfig(CameraConfig):
+    """Dummy camera configuration class for testing purposes.
+
+    Subclasses CameraConfig so it carries ALL fields the Camera code reads
+    (crop_width/crop_height included — the old plain class lacked them, so the
+    default Camera(config=None) raised AttributeError on the first image) and
+    runs the same __post_init__ validation.
+    """
 
     camera_color_image_topic: str = "dummy_camera/color/image_raw"
     camera_color_info_topic: str = "dummy_camera/color/camera_info"
-    resolution: tuple[int, int] = (640, 480)
+    resolution: list[int, int] | None = None
     camera_name: str = "dummy_camera"
     camera_frame: str = "dummy_camera_link"
-    max_image_delay: float = 1.0
+
+    def __post_init__(self):
+        """Default the resolution then run CameraConfig validation."""
+        if self.resolution is None:
+            self.resolution = [640, 480]
+        super().__post_init__()
