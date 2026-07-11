@@ -143,6 +143,11 @@ class ControllerSwitcherClient:
             controller_name (str): Name of the controller to switch to.
             controllers_that_should_be_active (list[str] | None): List of controller names to keep active or activate in the switch. Defaults to None.
         """
+        if not self.is_server_ready():
+            raise RuntimeError(
+                "controller_manager services are not available - is the robot "
+                "launch (ros2_control) running?"
+            )
         if controllers_that_should_be_active is None:
             controllers_that_should_be_active = []
 

@@ -209,6 +209,24 @@ class Camera:
         """Returns True if camera image and resolution are available."""
         return self._current_image is not None and self.config.resolution is not None
 
+    @property
+    def is_stale(self) -> bool:
+        """True if the image stream stopped updating (publisher died mid-run).
+
+        is_ready()/current_image keep serving the LAST image after a stream
+        outage; consumers that must not act on frozen frames should check this.
+        """
+        for callback_name in self._callback_monitor.callbacks.keys():
+            if (
+                "Camera" in callback_name
+                and self.config.camera_name in callback_name
+                and "Image" in callback_name
+            ):
+                data = self._callback_monitor.get_callback_data(callback_name)
+                if data is not None:
+                    return bool(data.is_stale)
+        return False  # no monitor data yet — cannot judge staleness
+
     def wait_until_ready(self, timeout: float = 10.0, check_frequency: float = 10.0):
         """Wait until camera image and resolution are available."""
         rate = self.node.create_rate(check_frequency)

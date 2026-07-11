@@ -18,6 +18,9 @@ class CameraConfig:
 
     max_image_delay: float = 1.0
 
+    # NOTE: (HEIGHT, WIDTH) order — Camera unpacks `target_h, target_w = resolution`
+    # and the camera-info fallback stores (msg.height, msg.width). All shipped
+    # configs are square, which is why a (w, h) reading never bit anyone.
     resolution: list[int, int] | None = None
     crop_width: list[int | float, int | float] | None = None
     crop_height: list[int | float, int | float] | None = None
@@ -46,7 +49,9 @@ class CameraConfig:
         if self.resolution is not None:
             if not (isinstance(self.resolution, (list, tuple)) and len(self.resolution) == 2):
                 raise ValueError(
-                    f"Resolution must be a list or tuple with (width, height). Got: {self.resolution} of type {type(self.resolution)}"
+                    "Resolution must be a list or tuple of (HEIGHT, WIDTH) — the "
+                    "code unpacks it as (h, w) and the camera-info fallback stores "
+                    f"(msg.height, msg.width). Got: {self.resolution} of type {type(self.resolution)}"
                 )
 
         if self.crop_width is not None:
