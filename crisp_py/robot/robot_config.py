@@ -38,6 +38,12 @@ class RobotConfig:
         use_tf_pose (bool): Whether to use TF for retrieving the target pose
         tf_retrieve_rate (float): Rate for retrieving TF transforms
         use_prefix (bool): Whether to use namespace prefix for joint names or not.
+        use_admittance_controller (bool): Create a ParametersClient for the
+            Cartesian admittance controller alongside the impedance one.
+        cartesian_admittance_controller_name (str): Parameter-client target
+            node of the admittance controller (when enabled).
+        target_admittance_stiffness_topic (str): Topic for publishing target
+            stiffness to the admittance controller (when enabled).
     """
 
     joint_names: list

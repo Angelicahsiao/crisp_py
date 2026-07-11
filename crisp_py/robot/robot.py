@@ -712,38 +712,27 @@ class Robot:
         joint_msg.effort = tau.tolist() if tau is not None else [0.0] * len(q)
         return joint_msg
 
+    def _joint_field_to_array(self, names, values) -> NDArray:
+        """Map (name, value) pairs from a JointState field onto config.joint_names order."""
+        out = np.zeros(self.nq)
+        for joint_name, value in zip(names, values):
+            key = joint_name.removeprefix(self._prefix)
+            if key not in self.config.joint_names:
+                continue
+            out[self.config.joint_names.index(key)] = value
+        return out.astype(np.float32)
+
     def ros_msg_to_joint(self, msg: JointState) -> NDArray:
         """Convert a joint state message to a numpy array of joint values."""
-        joint_values = np.zeros(self.nq)
-        for joint_name, joint_position in zip(msg.name, msg.position):
-            if joint_name.removeprefix(self._prefix) not in self.config.joint_names:
-                continue
-            joint_values[self.config.joint_names.index(joint_name.removeprefix(self._prefix))] = (
-                joint_position
-            )
-        return joint_values.astype(np.float32)
+        return self._joint_field_to_array(msg.name, msg.position)
 
     def _ros_msg_to_joint_velocity(self, msg: JointState) -> NDArray:
         """Convert a joint state message to a numpy array of joint velocities."""
-        joint_velocities = np.zeros(self.nq)
-        for joint_name, joint_velocity in zip(msg.name, msg.velocity):
-            if joint_name.removeprefix(self._prefix) not in self.config.joint_names:
-                continue
-            joint_velocities[self.config.joint_names.index(joint_name.removeprefix(self._prefix))] = (
-                joint_velocity
-            )
-        return joint_velocities.astype(np.float32)
+        return self._joint_field_to_array(msg.name, msg.velocity)
 
     def _ros_msg_to_joint_effort(self, msg: JointState) -> NDArray:
         """Convert a joint state message to a numpy array of joint efforts."""
-        joint_efforts = np.zeros(self.nq)
-        for joint_name, joint_effort in zip(msg.name, msg.effort):
-            if joint_name.removeprefix(self._prefix) not in self.config.joint_names:
-                continue
-            joint_efforts[self.config.joint_names.index(joint_name.removeprefix(self._prefix))] = (
-                joint_effort
-            )
-        return joint_efforts.astype(np.float32)
+        return self._joint_field_to_array(msg.name, msg.effort)
 
     def _parse_pose_or_position(
         self, position: List | NDArray | None = None, pose: Pose | None = None

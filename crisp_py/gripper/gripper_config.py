@@ -30,6 +30,17 @@ class GripperConfig:
 
     min_value: float
     max_value: float
+
+    def __post_init__(self):
+        """Reject a zero-range calibration (division by zero in _normalize).
+
+        An INVERTED range (min_value > max_value, e.g. Robotiq) is valid.
+        """
+        if self.min_value == self.max_value:
+            raise ValueError(
+                f"GripperConfig min_value == max_value ({self.min_value}): "
+                "zero calibration range would divide by zero when normalizing."
+            )
     command_topic: str = "gripper_position_controller/commands"
     joint_state_topic: str = "joint_states"
     reboot_service: str = "reboot_gripper"

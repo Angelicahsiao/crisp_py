@@ -21,11 +21,12 @@ too before touching anything pose- or gripper-related.
   if a member is added/renamed here, update that stub in the same change set.
 
 ### 1.2 Config field parity
-- `GripperConfig.from_yaml` manually enumerates fields instead of `cls(**data)`.
-  This already caused a bug once (`use_gripper_command_action` and `max_effort`
-  were silently dropped; fixed on main). When adding ANY field to
-  `GripperConfig`, add it in BOTH the dataclass and the `from_yaml` dict —
-  or better, refactor to `cls(**data)` like `CameraConfig` does.
+- FIXED: `GripperConfig.from_yaml` now uses `cls(**data)` (and
+  `Gripper.from_yaml` constructs `GripperConfig(**config_data)`), so new
+  dataclass fields load automatically. The historical bug (fields silently
+  dropped by a manually-enumerated dict) can no longer recur through this
+  path. `GripperConfig` also rejects `min_value == max_value` (zero range ->
+  divide-by-zero in `_normalize`); an INVERTED range (Robotiq) stays valid.
 - `RobotConfig` has `has_effort_feedback: bool = False` — effort observation in
   crisp_gym only activates when a robot config sets this true AND the JointState
   messages actually carry effort values.
@@ -46,7 +47,7 @@ best one (the sensor registry) rather than adding to the worst:
 | Family | Current mechanism | State |
 |---|---|---|
 | Sensors | decorator registry (`sensors/sensor.py`: `@register_sensor`) | GOOD — the model to copy |
-| Robots | `make_robot_config()` if/elif chain (`robot/robot_config.py`) + subclass + manual `__init__.py` export (exports already drifted: Panda/UR/DynaArm configs not exported) | to be replaced by a `@register_robot_config` registry |
+| Robots | `make_robot_config()` if/elif chain (`robot/robot_config.py`) + subclass + manual `__init__.py` export (export drift FIXED: Panda/UR/DynaArm now exported) | to be replaced by a `@register_robot_config` registry |
 | Grippers | single concrete `Gripper` class; variation via config booleans (`use_gripper_command_action`); `MultiDofGripper` added as a parallel standalone class | wants a `GripperBase` + registry so MultiDofGripper and future protocols slot in |
 | Cameras | single concrete `Camera`; hardcoded `CompressedImage` transport (`/compressed` suffix, rgb8) | wants a base class if raw/depth transports are ever needed |
 
@@ -58,7 +59,16 @@ Known small bugs (agreed to fix):
 - Broadcaster detection by `name.endswith("broadcaster")` in
   `control/controller_switcher.py`.
 - Duplicated crop/resize validation between `CameraConfig.__post_init__` and
-  `Camera._pre_crop`.
+  `Camera._pre_crop` (still open — dedup carefully, `_pre_crop` also validates
+  runtime values).
+- Camera `resolution` is **(HEIGHT, WIDTH)** — the code unpacks `(h, w)` and
+  the camera-info fallback stores `(msg.height, msg.width)`. All shipped
+  configs are square, which masked the historically ambiguous comment.
+- Thread-safety: `robot.py` now guards `_current_pose`/`_target_pose` with
+  `_pose_lock`; keep new accesses under it. `Pose.__add__/__sub__` implement a
+  WORLD-FRAME decoupled delta (order-sensitive: `base + delta`, never
+  `delta + base`) — NOT the UMI body-frame relative pose; see crisp_gym
+  tests/test_pose_math.py for the convention tests.
 
 Shared boilerplate (`_spin_node`, `from_yaml`, `wait_until_ready`, `make_*`,
 `list_*_configs`) is re-implemented in Robot/Gripper/Camera/Sensor — a shared
