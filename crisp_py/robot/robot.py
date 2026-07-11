@@ -683,6 +683,15 @@ class Robot:
 
     def home(self, home_config: list[float] | None = None, blocking: bool = True):
         """Home the robot."""
+        if home_config is not None and len(home_config) != self.nq:
+            # A wrong-size trajectory is silently REJECTED by the controller
+            # (invisible with blocking=False -> the robot just never moves),
+            # e.g. a 7-joint Franka HomeConfig sent to a 6-joint UR.
+            raise ValueError(
+                f"home_config has {len(home_config)} joints but this robot has "
+                f"{self.nq} ({self.config.joint_names}). Pass a config matching "
+                "the robot, or None to use the robot's own home_config."
+            )
         self.controller_switcher_client.switch_controller(self.config.home_controller_name)
         self.joint_trajectory_controller_client.send_joint_config(
             self.config.joint_names,
