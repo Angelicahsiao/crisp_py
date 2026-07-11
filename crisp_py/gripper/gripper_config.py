@@ -89,5 +89,6 @@ class GripperConfig:
         # YAML keys raise instead of being silently dropped (the parity trap
         # documented in HANDOFF.md — the old manual dict lost fields twice).
         # Same behavior as Gripper.from_yaml, which builds the config directly.
+        config.pop("type", None)  # registry dispatch key (make_gripper), not a field
         config.update(overrides)
         return cls(**config)

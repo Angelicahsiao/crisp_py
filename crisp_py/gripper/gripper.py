@@ -1,67 +1,35 @@
 """Generic class for a gripper based on a simple ros2 topic."""
 
-import threading
-
 import numpy as np
-import rclpy
 import yaml
 from control_msgs.action import GripperCommand
 from rclpy.action.client import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import qos_profile_system_default
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
-from std_srvs.srv import SetBool, Trigger
 
 from crisp_py.config.path import find_config, list_configs_in_folder
+from crisp_py.gripper.gripper_base import GRIPPER_REGISTRY, GripperBase, register_gripper
 from crisp_py.gripper.gripper_config import GripperConfig
-from crisp_py.utils.callback_monitor import CallbackMonitor
 
 
-class Gripper:
-    """Interface for gripper wrapper."""
+@register_gripper("gripper")
+class Gripper(GripperBase):
+    """Single-DOF gripper client: one normalized [0, 1] value.
 
-    THREADS_REQUIRED = 2
+    Node/spin/monitor/reboot/torque machinery lives in GripperBase.
+    """
 
-    def __init__(
-        self,
-        node: Node | None = None,
-        namespace: str = "",
-        gripper_config: GripperConfig | None = None,
-        spin_node: bool = True,
-    ):
-        """Initialize the gripper client.
+    NODE_NAME = "gripper_client"
 
-        Args:
-            node (Node, optional): ROS2 node to use. If None, creates a new node.
-            namespace (str, optional): ROS2 namespace for the gripper.
-            gripper_config (GripperConfig, optional): configuration for the gripper class.
-            spin_node (bool, optional): Whether to spin the node in a separate thread.
-        """
-        if not rclpy.ok() and node is None:
-            rclpy.init()
-
-        self.node = (
-            rclpy.create_node(
-                node_name="gripper_client", namespace=namespace, parameter_overrides=[]
-            )
-            if not node
-            else node
-        )
-        self.config = (
-            gripper_config if gripper_config else GripperConfig(min_value=0.0, max_value=1.0)
-        )
-
-        self._prefix = f"{namespace}_" if namespace else ""
+    def _setup_io(self):
+        """Create the command publisher/action client, joint subscriber and target timer."""
         self._value = None
         self._torque = None
         self._target = None
         self._index = self.config.index
-        self._callback_monitor = CallbackMonitor(
-            self.node, stale_threshold=self.config.max_joint_delay
-        )
 
         self._command_publisher = (
             self.node.create_publisher(
@@ -88,7 +56,7 @@ class Gripper:
             JointState,
             self.config.joint_state_topic,
             self._callback_monitor.monitor(
-                f"{namespace.capitalize()} Gripper Joint State", self._callback_joint_state
+                f"{self._namespace.capitalize()} Gripper Joint State", self._callback_joint_state
             ),
             qos_profile_system_default,
             callback_group=ReentrantCallbackGroup(),
@@ -97,18 +65,11 @@ class Gripper:
         self.node.create_timer(
             1.0 / self.config.publish_frequency,
             self._callback_monitor.monitor(
-                f"{namespace.capitalize()} Gripper Target Publisher", self._callback_publish_target
+                f"{self._namespace.capitalize()} Gripper Target Publisher",
+                self._callback_publish_target,
             ),
             ReentrantCallbackGroup(),
         )
-
-        self.reboot_client = self.node.create_client(Trigger, self.config.reboot_service)
-        self.enable_torque_client = self.node.create_client(
-            SetBool, self.config.enable_torque_service
-        )
-
-        if spin_node:
-            threading.Thread(target=self._spin_node, daemon=True).start()
 
     @classmethod
     def from_yaml(
@@ -149,6 +110,7 @@ class Gripper:
         with open(config_path, "r") as f:
             data = yaml.safe_load(f) or {}
 
+        data.pop("type", None)  # dispatch key consumed by make_gripper
         data.update(overrides)
 
         namespace = data.pop("namespace", namespace)
@@ -162,14 +124,6 @@ class Gripper:
             gripper_config=gripper_config,
             spin_node=spin_node,
         )
-
-    def _spin_node(self):
-        if not rclpy.ok():
-            rclpy.init()
-        executor = MultiThreadedExecutor(num_threads=self.THREADS_REQUIRED)
-        executor.add_node(self.node)
-        while rclpy.ok():
-            executor.spin_once(timeout_sec=0.1)
 
     @property
     def min_value(self) -> float:
@@ -239,17 +193,6 @@ class Gripper:
             else True
         )
         return self._value is not None and action_client_ready
-
-    def wait_until_ready(self, timeout: float = 10.0, check_frequency: float = 10.0):
-        """Wait until the gripper is available."""
-        rate = self.node.create_rate(check_frequency)
-        while not self.is_ready():
-            rate.sleep()
-            timeout -= 1.0 / check_frequency
-            if timeout <= 0:
-                raise TimeoutError(
-                    f"Timeout waiting for gripper to be ready.\n Is the gripper topic {self._joint_subscriber.topic_name} being published?"
-                )
 
     def is_open(self, open_threshold: float = 0.1) -> bool:
         """Returns True if the gripper is open."""
@@ -347,92 +290,6 @@ class Gripper:
         """Normalize a raw value between 0.0 and 1.0."""
         return (self.max_value - self.min_value) * normalized_value + self.min_value
 
-    def shutdown(self):
-        """Shutdown the node and allow the robot to be instantiated again."""
-        if rclpy.ok():
-            rclpy.shutdown()
-
-    def reboot(self, block: bool = False):
-        """Reboot the gripper if the reboot service is available.
-
-        Args:
-            block: if block is set to True, then we wait until a response arrives.
-        """
-        if self.config.torque_interface is False:
-            return
-        if not self.reboot_client.service_is_ready():
-            if self.config.torque_interface is True:
-                raise RuntimeError(
-                    f"Reboot service {self.config.reboot_service} is not available "
-                    "although the gripper config declares torque_interface: true. "
-                    "Is the gripper running?"
-                )
-            self.node.get_logger().warning(
-                f"Reboot service {self.config.reboot_service} not available — "
-                "skipping (this gripper type likely does not support rebooting; "
-                "set torque_interface: false in the gripper config to silence)."
-            )
-            return
-
-        if block:
-            self.reboot_client.call(Trigger.Request())
-        else:
-            self.reboot_client.call_async(Trigger.Request())
-
-    def enable_torque(self, block: bool = False):
-        """Enable torque holding in the gripper.
-
-        Args:
-            block: if block is set to True, then we wait until a response arrives.
-        """
-        self._set_torque_holding(enable=True, block=block)
-
-    def disable_torque(self, block: bool = False):
-        """Disable torque holding in the gripper to allow free movement.
-
-        Args:
-            block: if block is set to True, then we wait until a response arrives.
-        """
-        self._set_torque_holding(enable=False, block=block)
-
-    def _set_torque_holding(self, enable: bool, block: bool = False):
-        """Toggle torque holding if the gripper supports it.
-
-        Torque toggling is a Dynamixel-style capability; grippers driven via
-        GripperCommand actions (e.g. Robotiq) have no such service. Behavior
-        is governed by config.torque_interface:
-          false -> skip silently (declared unsupported)
-          None  -> best-effort: skip with a warning if the service is missing
-          true  -> required: raise if the service is missing
-
-        Args:
-            enable: whether or not we enable the torque holding in the motor.
-            block: if block is set to True, then we wait until a response arrives.
-        """
-        if self.config.torque_interface is False:
-            return
-        if not self.enable_torque_client.service_is_ready():
-            if self.config.torque_interface is True:
-                raise RuntimeError(
-                    f"Torque service {self.config.enable_torque_service} is not "
-                    "available although the gripper config declares "
-                    "torque_interface: true. Is the gripper running?"
-                )
-            self.node.get_logger().warning(
-                f"Torque service {self.config.enable_torque_service} not available — "
-                "skipping torque toggle (set torque_interface: false in the gripper "
-                "config if this gripper has no torque interface, or true to make "
-                "this an error)."
-            )
-            return
-
-        req = SetBool.Request()
-        req.data = enable
-        if block:
-            self.enable_torque_client.call(req)
-        else:
-            self.enable_torque_client.call_async(req)
-
 def make_gripper(
     config_name: str | None,
     gripper_config: GripperConfig | None = None,
@@ -440,8 +297,16 @@ def make_gripper(
     namespace: str = "",
     spin_node: bool = True,
     **overrides,  # noqa: ANN003
-) -> Gripper:
-    """Factory function to create a Gripper from a configuration file.
+) -> GripperBase:
+    """Factory: create a gripper of the right TYPE from a config file or config.
+
+    Dispatch:
+      * YAML path: an optional top-level ``type:`` key selects the
+        implementation from the gripper registry (``gripper`` default,
+        ``multi_dof`` for MultiDofGripper). No ``type:`` key -> plain Gripper,
+        exactly as before.
+      * gripper_config instance: dispatched on the config class
+        (MultiDofGripperConfig -> MultiDofGripper, else Gripper).
 
     Args:
         config_name: Name of the gripper config file
@@ -452,15 +317,35 @@ def make_gripper(
         **overrides: Additional parameters to override config values
 
     Returns:
-        Gripper: Configured gripper instance
+        GripperBase: Configured gripper instance of the dispatched type.
 
     Raises:
         FileNotFoundError: If the config file is not found
+        ValueError: If the `type:` key names an unregistered gripper type.
     """
+    # ensure all built-in implementations are registered
+    from crisp_py.gripper.multi_dof_gripper import MultiDofGripper, MultiDofGripperConfig  # noqa: F401
+
     if not ((not config_name and gripper_config) or (config_name and not gripper_config)):
         raise ValueError("Either config_name or gripper_config must be provided, not both.")
+
     if config_name is not None:
-        return Gripper.from_yaml(
+        yaml_name = config_name if config_name.endswith(".yaml") else config_name + ".yaml"
+        config_path = find_config(f"grippers/{yaml_name}") or find_config(yaml_name)
+        if config_path is None:
+            raise FileNotFoundError(
+                f"Gripper config file '{config_name}' not found in any CRISP config paths"
+            )
+        with open(config_path, "r") as f:
+            data = yaml.safe_load(f) or {}
+        type_name = overrides.pop("type", data.get("type", "gripper"))
+        cls = GRIPPER_REGISTRY.get(type_name)
+        if cls is None:
+            raise ValueError(
+                f"Unknown gripper type '{type_name}' in {config_path}. "
+                f"Registered types: {sorted(GRIPPER_REGISTRY)}"
+            )
+        return cls.from_yaml(
             config_name=config_name,
             node=node,
             namespace=namespace,
@@ -468,7 +353,8 @@ def make_gripper(
             **overrides,
         )
 
-    return Gripper(
+    cls = MultiDofGripper if isinstance(gripper_config, MultiDofGripperConfig) else Gripper
+    return cls(
         gripper_config=gripper_config, node=node, namespace=namespace, spin_node=spin_node
     )
 

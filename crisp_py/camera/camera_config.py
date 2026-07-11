@@ -22,6 +22,18 @@ class CameraConfig:
     # and the camera-info fallback stores (msg.height, msg.width). All shipped
     # configs are square, which is why a (w, h) reading never bit anyone.
     resolution: list[int, int] | None = None
+
+    # Image transport:
+    #   "compressed" (default) -> subscribe CompressedImage on
+    #                             camera_color_image_topic + compressed_topic_suffix
+    #   "raw"                  -> subscribe sensor_msgs/Image on
+    #                             camera_color_image_topic as-is.
+    # Raw transport moves/stores UNCOMPRESSED frames — much higher bandwidth
+    # and (if recorded) storage; prefer compressed unless the publisher offers
+    # no compressed topic.
+    image_transport: str = "compressed"
+    compressed_topic_suffix: str = "/compressed"
+    image_encoding: str = "rgb8"
     crop_width: list[int | float, int | float] | None = None
     crop_height: list[int | float, int | float] | None = None
 
@@ -45,7 +57,13 @@ class CameraConfig:
         return cls(**data)
 
     def __post_init__(self):
-        """Post-initialization to validate resolution and cropping."""
+        """Post-initialization to validate transport, resolution and cropping."""
+        if self.image_transport not in ("compressed", "raw"):
+            raise ValueError(
+                f"image_transport must be 'compressed' or 'raw', got "
+                f"'{self.image_transport}'."
+            )
+
         if self.resolution is not None:
             if not (isinstance(self.resolution, (list, tuple)) and len(self.resolution) == 2):
                 raise ValueError(

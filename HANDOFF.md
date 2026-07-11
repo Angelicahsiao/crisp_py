@@ -48,8 +48,8 @@ best one (the sensor registry) rather than adding to the worst:
 |---|---|---|
 | Sensors | decorator registry (`sensors/sensor.py`: `@register_sensor`) | GOOD — the model to copy |
 | Robots | `make_robot_config()` if/elif chain (`robot/robot_config.py`) + subclass + manual `__init__.py` export (export drift FIXED: Panda/UR/DynaArm now exported) | to be replaced by a `@register_robot_config` registry |
-| Grippers | single concrete `Gripper` class; variation via config booleans (`use_gripper_command_action`); `MultiDofGripper` added as a parallel standalone class | wants a `GripperBase` + registry so MultiDofGripper and future protocols slot in |
-| Cameras | single concrete `Camera`; hardcoded `CompressedImage` transport (`/compressed` suffix, rgb8) | wants a base class if raw/depth transports are ever needed |
+| Grippers | DONE: `GripperBase` (gripper/gripper_base.py) + `@register_gripper` registry; `Gripper`/`MultiDofGripper` subclass it (shared node/spin/monitor/reboot/torque incl. tri-state `torque_interface` — MultiDof's silent `true` divergence fixed). `make_gripper` dispatches on the YAML `type:` key (`gripper` default, `multi_dof`). | model for the robot-config registry |
+| Cameras | DONE (transport): `image_transport: compressed|raw`, `compressed_topic_suffix`, `image_encoding` in CameraConfig; raw logs a bandwidth/storage warning. Depth would still need a base class. | — |
 
 Known small bugs (agreed to fix):
 - FIXED: `Robot.home()` now uses `config.home_controller_name` (a NEW field —

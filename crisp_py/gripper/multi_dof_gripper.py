@@ -13,25 +13,21 @@ provides a parallel implementation that:
   ``max_values[i]``.
 """
 
-import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
 
 import numpy as np
-import rclpy
 import yaml
 from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import qos_profile_system_default
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
-from std_srvs.srv import SetBool, Trigger
 
 from crisp_py.config.path import find_config
+from crisp_py.gripper.gripper_base import GripperBase, register_gripper
 from crisp_py.gripper.gripper_config import GripperConfig
-from crisp_py.utils.callback_monitor import CallbackMonitor
 
 
 @dataclass
@@ -54,6 +50,7 @@ class MultiDofGripperConfig(GripperConfig):
     joint_names: List[str] = field(default_factory=list)
 
     def __post_init__(self):
+        super().__post_init__()  # zero-range guard on the scalar fallbacks
         if not self.min_values:
             self.min_values = [float(self.min_value)] * self.num_joints
         if not self.max_values:
@@ -89,51 +86,31 @@ class MultiDofGripperConfig(GripperConfig):
         return cls(**data)
 
 
-class MultiDofGripper:
+@register_gripper("multi_dof")
+class MultiDofGripper(GripperBase):
     """ROS2 client for an N-DOF gripper.
 
     Mirrors the public surface of :class:`crisp_py.gripper.gripper.Gripper` but
     operates on per-joint arrays of shape ``(num_joints,)`` instead of scalars.
+    Node/spin/monitor/reboot/torque machinery lives in GripperBase — including
+    the tri-state ``torque_interface`` semantics (``true`` now RAISES when the
+    services are missing, previously silently ignored here).
     """
 
-    THREADS_REQUIRED = 2
+    NODE_NAME = "multi_dof_gripper_client"
 
-    def __init__(
-        self,
-        node: Node | None = None,
-        namespace: str = "",
-        gripper_config: MultiDofGripperConfig | None = None,
-        spin_node: bool = True,
-    ):
-        if not rclpy.ok() and node is None:
-            rclpy.init()
+    @staticmethod
+    def _default_config() -> "MultiDofGripperConfig":
+        return MultiDofGripperConfig(min_value=0.0, max_value=1.0, num_joints=1)
 
-        self.node = (
-            rclpy.create_node(
-                node_name="multi_dof_gripper_client",
-                namespace=namespace,
-                parameter_overrides=[],
-            )
-            if not node
-            else node
-        )
-        self.config: MultiDofGripperConfig = (
-            gripper_config
-            if gripper_config is not None
-            else MultiDofGripperConfig(min_value=0.0, max_value=1.0, num_joints=1)
-        )
-
-        self._prefix = f"{namespace}_" if namespace else ""
+    def _setup_io(self):
+        """Create the command publisher, joint subscriber and target timer."""
         self._values: np.ndarray | None = None
         self._target: np.ndarray | None = None
         self._mins = np.asarray(self.config.min_values, dtype=np.float64)
         self._maxs = np.asarray(self.config.max_values, dtype=np.float64)
         self._range = self._maxs - self._mins
         self._range = np.where(self._range == 0.0, 1.0, self._range)
-
-        self._callback_monitor = CallbackMonitor(
-            self.node, stale_threshold=self.config.max_joint_delay
-        )
 
         self._command_publisher = self.node.create_publisher(
             Float64MultiArray,
@@ -146,7 +123,7 @@ class MultiDofGripper:
             JointState,
             self.config.joint_state_topic,
             self._callback_monitor.monitor(
-                f"{namespace.capitalize()} MultiDofGripper Joint State",
+                f"{self._namespace.capitalize()} MultiDofGripper Joint State",
                 self._callback_joint_state,
             ),
             qos_profile_system_default,
@@ -156,27 +133,11 @@ class MultiDofGripper:
         self.node.create_timer(
             1.0 / self.config.publish_frequency,
             self._callback_monitor.monitor(
-                f"{namespace.capitalize()} MultiDofGripper Target Publisher",
+                f"{self._namespace.capitalize()} MultiDofGripper Target Publisher",
                 self._callback_publish_target,
             ),
             ReentrantCallbackGroup(),
         )
-
-        self.reboot_client = self.node.create_client(Trigger, self.config.reboot_service)
-        self.enable_torque_client = self.node.create_client(
-            SetBool, self.config.enable_torque_service
-        )
-
-        if spin_node:
-            threading.Thread(target=self._spin_node, daemon=True).start()
-
-    def _spin_node(self):
-        if not rclpy.ok():
-            rclpy.init()
-        executor = MultiThreadedExecutor(num_threads=self.THREADS_REQUIRED)
-        executor.add_node(self.node)
-        while rclpy.ok():
-            executor.spin_once(timeout_sec=0.1)
 
     @property
     def num_joints(self) -> int:
@@ -203,16 +164,6 @@ class MultiDofGripper:
 
     def is_ready(self) -> bool:
         return self._values is not None
-
-    def wait_until_ready(self, timeout: float = 10.0, check_frequency: float = 10.0):
-        rate = self.node.create_rate(check_frequency)
-        while not self.is_ready():
-            rate.sleep()
-            timeout -= 1.0 / check_frequency
-            if timeout <= 0:
-                raise TimeoutError(
-                    f"Timeout waiting for multi-DOF gripper. Is {self._joint_subscriber.topic_name} being published?"
-                )
 
     def is_open(self, open_threshold: float = 0.5) -> bool:
         return bool(np.mean(self.value) > open_threshold)
@@ -268,51 +219,6 @@ class MultiDofGripper:
         msg = Float64MultiArray()
         msg.data = cmd.tolist()
         self._command_publisher.publish(msg)
-
-    def shutdown(self):
-        if rclpy.ok():
-            rclpy.shutdown()
-
-    def reboot(self, block: bool = False):
-        if getattr(self.config, "torque_interface", None) is False:
-            return
-        if not self.reboot_client.service_is_ready():
-            if getattr(self.config, "torque_interface", None) is True:
-                raise RuntimeError(
-                    f"Reboot service {self.config.reboot_service} is not available "
-                    "although the gripper config declares torque_interface: true."
-                )
-            self.node.get_logger().warning(
-                f"Reboot service {self.config.reboot_service} not available; skipping."
-            )
-            return
-        if block:
-            self.reboot_client.call(Trigger.Request())
-        else:
-            self.reboot_client.call_async(Trigger.Request())
-
-    def enable_torque(self, block: bool = False):
-        self._set_torque_holding(enable=True, block=block)
-
-    def disable_torque(self, block: bool = False):
-        self._set_torque_holding(enable=False, block=block)
-
-    def _set_torque_holding(self, enable: bool, block: bool = False):
-        if getattr(self.config, "torque_interface", None) is False:
-            return
-        if not self.enable_torque_client.service_is_ready():
-            # The DG3F driver does not expose the dynamixel torque service;
-            # warn rather than fail so envs can still run.
-            self.node.get_logger().warning(
-                f"Torque service {self.config.enable_torque_service} not available; skipping."
-            )
-            return
-        req = SetBool.Request()
-        req.data = enable
-        if block:
-            self.enable_torque_client.call(req)
-        else:
-            self.enable_torque_client.call_async(req)
 
     @classmethod
     def from_yaml(
