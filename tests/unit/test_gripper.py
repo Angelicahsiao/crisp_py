@@ -7,6 +7,11 @@ import pytest
 
 from crisp_py.gripper.gripper import Gripper, GripperConfig
 
+# The ROS node machinery (rclpy, CallbackMonitor) lives in GripperBase, so the
+# mock patches below target `crisp_py.gripper.gripper_base.*`, not `...gripper.*`.
+_RCLPY = "crisp_py.gripper.gripper_base.rclpy"
+_MONITOR = "crisp_py.gripper.gripper_base.CallbackMonitor"
+
 
 class TestGripperConfig:
     """Test cases for the GripperConfig class."""
@@ -123,17 +128,13 @@ command_topic: "partial_commands"
         with pytest.raises(TypeError, match="Path must be a string or a Path object"):
             GripperConfig.from_yaml(123)
 
-    def test_gripper_config_from_yaml_empty_file(self):
-        """Test GripperConfig.from_yaml with empty YAML file."""
+    def test_gripper_config_from_yaml_empty_file_requires_calibration(self):
+        """An empty YAML must fail: min_value/max_value are required (no silent
+        0/1 default), forcing every gripper config to declare its calibration."""
         with patch("builtins.open", mock_open(read_data="")):
             with patch("yaml.safe_load", return_value={}):
-                config = GripperConfig.from_yaml(Path("/fake/path/config.yaml"))
-
-        # All should be defaults
-        assert config.min_value == 0.0
-        assert config.max_value == 1.0
-        assert config.command_topic == "gripper_position_controller/commands"
-        assert config.index == 0
+                with pytest.raises(TypeError, match="min_value|max_value"):
+                    GripperConfig.from_yaml(Path("/fake/path/config.yaml"))
 
 
 class TestGripperBasics:
@@ -145,10 +146,10 @@ class TestGripperBasics:
 
     def test_gripper_init_with_custom_config(self):
         """Test gripper initialization with custom config."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -165,10 +166,10 @@ class TestGripperBasics:
 
     def test_gripper_init_with_default_config(self):
         """Test gripper initialization with default config."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -184,10 +185,10 @@ class TestGripperBasics:
 
     def test_gripper_init_with_namespace(self):
         """Test gripper initialization with namespace."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -201,10 +202,10 @@ class TestGripperBasics:
 
     def test_gripper_init_without_namespace(self):
         """Test gripper initialization without namespace."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -222,10 +223,10 @@ class TestGripperProperties:
 
     def test_gripper_properties_initial_values(self):
         """Test gripper properties have correct initial values."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -241,10 +242,10 @@ class TestGripperProperties:
 
     def test_gripper_value_error_when_not_initialized(self):
         """Test value property raises error when not initialized."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -259,10 +260,10 @@ class TestGripperProperties:
 
     def test_gripper_value_returns_normalized_value(self):
         """Test value property returns normalized value."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -283,10 +284,10 @@ class TestGripperProperties:
 
     def test_gripper_value_clipped_to_valid_range(self):
         """Test value property clips to valid range."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -310,10 +311,10 @@ class TestGripperProperties:
 
     def test_gripper_is_ready_true_when_initialized(self):
         """Test is_ready returns True when gripper is initialized."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -328,10 +329,10 @@ class TestGripperProperties:
 
     def test_gripper_is_valid_checks_bounds(self):
         """Test is_valid checks if gripper value is within bounds."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -362,10 +363,10 @@ class TestGripperMethods:
 
     def test_gripper_open_sets_target_to_one(self):
         """Test open method sets target to 1.0."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -382,10 +383,10 @@ class TestGripperMethods:
 
     def test_gripper_close_sets_target_to_zero(self):
         """Test close method sets target to 0.0."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -402,10 +403,10 @@ class TestGripperMethods:
 
     def test_gripper_set_target_valid_range(self):
         """Test set_target with valid range."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -422,10 +423,10 @@ class TestGripperMethods:
 
     def test_gripper_set_target_with_epsilon(self):
         """Test set_target with epsilon tolerance."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -443,10 +444,10 @@ class TestGripperMethods:
 
     def test_gripper_set_target_out_of_range(self):
         """Test set_target raises error when out of range."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -463,10 +464,10 @@ class TestGripperMethods:
 
     def test_gripper_is_open_true_when_above_threshold(self):
         """Test is_open returns True when gripper is above threshold."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -485,10 +486,10 @@ class TestGripperMethods:
 
     def test_gripper_is_open_error_when_not_initialized(self):
         """Test is_open raises error when gripper not initialized."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -507,10 +508,10 @@ class TestGripperNormalization:
 
     def test_gripper_normalize_function(self):
         """Test _normalize function works correctly."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -528,10 +529,10 @@ class TestGripperNormalization:
 
     def test_gripper_unnormalize_function(self):
         """Test _unnormalize function works correctly."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -549,10 +550,10 @@ class TestGripperNormalization:
 
     def test_gripper_normalize_unnormalize_roundtrip(self):
         """Test that normalize and unnormalize are inverse operations."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -574,12 +575,26 @@ class TestGripperNormalization:
 class TestGripperServices:
     """Test gripper service functionality."""
 
+    # NOTE: reboot/torque are TRI-STATE (config.torque_interface):
+    #   None (default) -> best-effort: skip with a warning if the service is
+    #                     missing (does NOT raise)
+    #   True           -> required: raise RuntimeError if the service is missing
+    #   False          -> capability absent: return immediately, no service call
+    # The single implementation lives in GripperBase and issues every call via
+    # `call_async` (a synchronous client call deadlocks against an externally
+    # spun node), so blocking calls also go through `call_async`, not `call`.
+
+    @staticmethod
+    def _ready(client, ready: bool):
+        """service_is_ready is a METHOD on real ROS clients — mock it as one."""
+        client.service_is_ready = Mock(return_value=ready)
+
     def test_gripper_reboot_service_ready(self):
-        """Test reboot method when service is ready."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        """Test reboot method when service is ready (issued via call_async)."""
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -588,24 +603,25 @@ class TestGripperServices:
                 mock_rclpy.create_node.return_value = mock_node
 
                 gripper = Gripper(spin_node=False)
+                self._ready(gripper.reboot_client, True)
 
-                # Mock service as ready
-                gripper.reboot_client.service_is_ready = True
-
-                # Test non-blocking call
+                # Non-blocking: fire-and-forget via call_async.
                 gripper.reboot(block=False)
                 gripper.reboot_client.call_async.assert_called_once()
 
-                # Test blocking call
+                # Blocking: still call_async (future.done() is truthy on the
+                # Mock, so the poll loop exits immediately). `call` is never used.
                 gripper.reboot(block=True)
-                gripper.reboot_client.call.assert_called_once()
+                assert gripper.reboot_client.call_async.call_count == 2
+                gripper.reboot_client.call.assert_not_called()
 
-    def test_gripper_reboot_service_not_ready(self):
-        """Test reboot method when service is not ready."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+    def test_gripper_reboot_service_not_ready_best_effort_skips(self):
+        """Default (torque_interface=None): a missing reboot service is skipped
+        with a warning, NOT raised."""
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -613,20 +629,38 @@ class TestGripperServices:
                 mock_node.create_client.return_value = Mock()
                 mock_rclpy.create_node.return_value = mock_node
 
-                gripper = Gripper(spin_node=False)
+                gripper = Gripper(spin_node=False)  # torque_interface defaults None
+                self._ready(gripper.reboot_client, False)
 
-                # Mock service as not ready
-                gripper.reboot_client.service_is_ready = False
+                gripper.reboot()  # must not raise
+                gripper.reboot_client.call_async.assert_not_called()
 
-                with pytest.raises(RuntimeError, match="service.*is not available"):
+    def test_gripper_reboot_service_not_ready_required_raises(self):
+        """torque_interface=True: a missing reboot service is a hard error."""
+        with patch(_RCLPY) as mock_rclpy:
+            mock_rclpy.ok.return_value = True
+
+            with patch(_MONITOR):
+                mock_node = Mock()
+                mock_node.create_publisher.return_value = Mock()
+                mock_node.create_subscription.return_value = Mock()
+                mock_node.create_timer.return_value = Mock()
+                mock_node.create_client.return_value = Mock()
+                mock_rclpy.create_node.return_value = mock_node
+
+                config = GripperConfig(min_value=0.0, max_value=1.0, torque_interface=True)
+                gripper = Gripper(gripper_config=config, spin_node=False)
+                self._ready(gripper.reboot_client, False)
+
+                with pytest.raises(RuntimeError, match="not available"):
                     gripper.reboot()
 
     def test_gripper_enable_torque_service_ready(self):
-        """Test enable_torque method when service is ready."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        """Test enable/disable torque when service is ready (via call_async)."""
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -635,24 +669,22 @@ class TestGripperServices:
                 mock_rclpy.create_node.return_value = mock_node
 
                 gripper = Gripper(spin_node=False)
+                self._ready(gripper.enable_torque_client, True)
 
-                # Mock service as ready
-                gripper.enable_torque_client.service_is_ready = True
-
-                # Test enable torque
                 gripper.enable_torque(block=False)
                 gripper.enable_torque_client.call_async.assert_called_once()
 
-                # Test disable torque
                 gripper.disable_torque(block=True)
-                gripper.enable_torque_client.call.assert_called_once()
+                assert gripper.enable_torque_client.call_async.call_count == 2
+                gripper.enable_torque_client.call.assert_not_called()
 
-    def test_gripper_enable_torque_service_not_ready(self):
-        """Test enable_torque method when service is not ready."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+    def test_gripper_enable_torque_service_not_ready_best_effort_skips(self):
+        """Default (torque_interface=None): a missing torque service is skipped
+        with a warning, NOT raised."""
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -661,19 +693,42 @@ class TestGripperServices:
                 mock_rclpy.create_node.return_value = mock_node
 
                 gripper = Gripper(spin_node=False)
+                self._ready(gripper.enable_torque_client, False)
 
-                # Mock service as not ready
-                gripper.enable_torque_client.service_is_ready = False
+                gripper.enable_torque()   # must not raise
+                gripper.disable_torque()  # must not raise
+                gripper.enable_torque_client.call_async.assert_not_called()
 
-                with pytest.raises(RuntimeError, match="service.*is not available"):
+    def test_gripper_torque_service_not_ready_required_raises(self):
+        """torque_interface=True: a missing torque service is a hard error for
+        both enable and disable."""
+        with patch(_RCLPY) as mock_rclpy:
+            mock_rclpy.ok.return_value = True
+
+            with patch(_MONITOR):
+                mock_node = Mock()
+                mock_node.create_publisher.return_value = Mock()
+                mock_node.create_subscription.return_value = Mock()
+                mock_node.create_timer.return_value = Mock()
+                mock_node.create_client.return_value = Mock()
+                mock_rclpy.create_node.return_value = mock_node
+
+                config = GripperConfig(min_value=0.0, max_value=1.0, torque_interface=True)
+                gripper = Gripper(gripper_config=config, spin_node=False)
+                self._ready(gripper.enable_torque_client, False)
+
+                with pytest.raises(RuntimeError, match="not available"):
                     gripper.enable_torque()
+                with pytest.raises(RuntimeError, match="not available"):
+                    gripper.disable_torque()
 
-    def test_gripper_disable_torque_service_not_ready(self):
-        """Test disable_torque method when service is not ready."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+    def test_gripper_torque_interface_false_no_service_call(self):
+        """torque_interface=False: reboot/torque return immediately, never
+        touching the service clients (Robotiq / Franka Hand have none)."""
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -681,13 +736,14 @@ class TestGripperServices:
                 mock_node.create_client.return_value = Mock()
                 mock_rclpy.create_node.return_value = mock_node
 
-                gripper = Gripper(spin_node=False)
+                config = GripperConfig(min_value=0.0, max_value=1.0, torque_interface=False)
+                gripper = Gripper(gripper_config=config, spin_node=False)
 
-                # Mock service as not ready
-                gripper.enable_torque_client.service_is_ready = False
-
-                with pytest.raises(RuntimeError, match="service.*is not available"):
-                    gripper.disable_torque()
+                gripper.reboot()
+                gripper.enable_torque()
+                gripper.disable_torque()
+                gripper.reboot_client.call_async.assert_not_called()
+                gripper.enable_torque_client.call_async.assert_not_called()
 
 
 class TestGripperCallbacks:
@@ -695,10 +751,10 @@ class TestGripperCallbacks:
 
     def test_gripper_joint_state_callback(self):
         """Test joint state callback updates gripper state."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_node.create_publisher.return_value = Mock()
                 mock_node.create_subscription.return_value = Mock()
@@ -723,10 +779,10 @@ class TestGripperCallbacks:
 
     def test_gripper_publish_target_callback_no_target(self):
         """Test publish target callback when no target is set."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_publisher = Mock()
                 mock_node.create_publisher.return_value = mock_publisher
@@ -745,10 +801,10 @@ class TestGripperCallbacks:
 
     def test_gripper_publish_target_callback_with_target(self):
         """Test publish target callback with target set."""
-        with patch("crisp_py.gripper.gripper.rclpy") as mock_rclpy:
+        with patch(_RCLPY) as mock_rclpy:
             mock_rclpy.ok.return_value = True
 
-            with patch("crisp_py.gripper.gripper.CallbackMonitor"):
+            with patch(_MONITOR):
                 mock_node = Mock()
                 mock_publisher = Mock()
                 mock_node.create_publisher.return_value = mock_publisher
