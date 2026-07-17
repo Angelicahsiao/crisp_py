@@ -30,6 +30,17 @@ class GripperConfig:
 
     min_value: float
     max_value: float
+
+    def __post_init__(self):
+        """Reject a zero-range calibration (division by zero in _normalize).
+
+        An INVERTED range (min_value > max_value, e.g. Robotiq) is valid.
+        """
+        if self.min_value == self.max_value:
+            raise ValueError(
+                f"GripperConfig min_value == max_value ({self.min_value}): "
+                "zero calibration range would divide by zero when normalizing."
+            )
     command_topic: str = "gripper_position_controller/commands"
     joint_state_topic: str = "joint_states"
     reboot_service: str = "reboot_gripper"
@@ -40,6 +51,12 @@ class GripperConfig:
     max_delta: float = 0.1
     use_gripper_command_action: bool = False
     max_effort: float = 10.0
+
+    # Torque-holding / reboot capability (Dynamixel-style services).
+    #   None (default): best-effort — skip with a warning if unavailable
+    #   false: gripper has no torque interface (e.g. Robotiq, Franka Hand); skip silently
+    #   true: required — raise if the service is missing
+    torque_interface: bool | None = None
 
     @classmethod
     def from_yaml(cls, path: str | Path, **overrides) -> "GripperConfig":  # noqa: ANN003
@@ -68,25 +85,10 @@ class GripperConfig:
         with open(full_path, "r") as file:
             config = yaml.safe_load(file) or {}
 
-            config_data = {
-                "min_value": config.get("min_value", 0.0),
-                "max_value": config.get("max_value", 1.0),
-                "command_topic": config.get(
-                    "command_topic", "gripper_position_controller/commands"
-                ),
-                "joint_state_topic": config.get("joint_state_topic", "joint_states"),
-                "reboot_service": config.get("reboot_service", "reboot_gripper"),
-                "enable_torque_service": config.get(
-                    "enable_torque_service", "dynamixel_hardware_interface/set_dxl_torque"
-                ),
-                "index": config.get("index", 0),
-                "publish_frequency": config.get("publish_frequency", 30.0),
-                "max_delta": config.get("max_delta", 0.1),
-                "max_joint_delay": config.get("max_joint_delay", 1.0),
-                "use_gripper_command_action": config.get("use_gripper_command_action", False),
-                "max_effort": config.get("max_effort", 10.0),
-            }
-
-            config_data.update(overrides)
-
-        return cls(**config_data)
+        # cls(**data): dataclass defaults apply for absent keys, and unknown
+        # YAML keys raise instead of being silently dropped (the parity trap
+        # documented in HANDOFF.md — the old manual dict lost fields twice).
+        # Same behavior as Gripper.from_yaml, which builds the config directly.
+        config.pop("type", None)  # registry dispatch key (make_gripper), not a field
+        config.update(overrides)
+        return cls(**config)

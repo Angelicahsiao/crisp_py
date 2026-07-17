@@ -69,15 +69,19 @@ class Robot:
                 name,
                 namespace=namespace,
             )
+            self._owns_node = True
         else:
             self.node = node
+            self._owns_node = False
         self.config = robot_config if robot_config else FrankaConfig()
 
         self._prefix = f"{namespace}_" if namespace and self.config.use_prefix else ""
 
         self.controller_switcher_client = ControllerSwitcherClient(self.node)
         self.joint_trajectory_controller_client = JointTrajectoryControllerClient(
-            self.node, use_prefix=self.config.use_prefix
+            self.node,
+            use_prefix=self.config.use_prefix,
+            controller_name=self.config.home_controller_name,
         )
         self.cartesian_controller_parameters_client = ParametersClient(
             self.node, target_node=self.config.cartesian_impedance_controller_name
@@ -91,6 +95,9 @@ class Robot:
                 self.node, target_node=self.config.cartesian_admittance_controller_name
             )
 
+        # Guards _current_pose/_target_pose: written by executor callbacks,
+        # read by user threads and the publish timers concurrently.
+        self._pose_lock = threading.RLock()
         self._current_pose = None
         self._target_pose = None
         self._current_joint = None
@@ -277,11 +284,12 @@ class Robot:
         Returns:
             Pose: The current pose of the end effector, or None if not available.
         """
-        if self._current_pose is None:
-            raise RuntimeError(
-                "The robot has not received any poses yet. Run wait_until_ready() before running anything else."
-            )
-        return self._current_pose.copy()
+        with self._pose_lock:
+            if self._current_pose is None:
+                raise RuntimeError(
+                    "The robot has not received any poses yet. Run wait_until_ready() before running anything else."
+                )
+            return self._current_pose.copy()
 
     @property
     def target_pose(self) -> Pose:
@@ -290,11 +298,12 @@ class Robot:
         Returns:
             Pose: The target pose of the end effector, or None if not set.
         """
-        if self._target_pose is None:
-            raise RuntimeError(
-                "The robot has not received any poses yet. Run wait_until_ready() before running anything else."
-            )
-        return self._target_pose.copy()
+        with self._pose_lock:
+            if self._target_pose is None:
+                raise RuntimeError(
+                    "The robot has not received any poses yet. Run wait_until_ready() before running anything else."
+                )
+            return self._target_pose.copy()
 
     @property
     def joint_values(self) -> NDArray:
@@ -317,6 +326,15 @@ class Robot:
             numpy.ndarray: Copy of current joint efforts, or zeros if not available.
         """
         if self._current_joint_effort is None:
+            # Documented fallback, but make the misconfiguration visible: a
+            # robot without effort in its JointState reports zeros forever,
+            # which is indistinguishable from a real zero-torque reading.
+            self.node.get_logger().warning(
+                "current_joint_effort requested but no effort values have been "
+                "received — returning zeros. Check the joint_state topic / "
+                "has_effort_feedback config.",
+                throttle_duration_sec=10.0,
+            )
             return np.zeros(self.nq, dtype=np.float32)
         return self._current_joint_effort.copy()
 
@@ -365,9 +383,10 @@ class Robot:
     def _callback_update_tf_pose(self):
         """Update the current pose from TF if TF pose is enabled."""
         if self._tf_pose is not None and self._tf_pose.current_pose is not None:
-            self._current_pose = self._tf_pose.pose
-            if self._target_pose is None:
-                self._target_pose = self._current_pose.copy()
+            with self._pose_lock:
+                self._current_pose = self._tf_pose.pose
+                if self._target_pose is None:
+                    self._target_pose = self._current_pose.copy()
 
     def is_ready(self) -> bool:
         """Check if the robot is ready for operation.
@@ -388,7 +407,8 @@ class Robot:
         This method clears the target pose, joint values, and wrench values,
         effectively stopping any ongoing movement or force application.
         """
-        self._target_pose = None
+        with self._pose_lock:
+            self._target_pose = None
         self._target_joint = None
         self._target_wrench = None
         # Note: stiffness is NOT reset here because it is latched by the controller
@@ -431,7 +451,8 @@ class Robot:
             the translation component of pose.
         """
         target_pose = self._parse_pose_or_position(position, pose)
-        self._target_pose = target_pose.copy()
+        with self._pose_lock:
+            self._target_pose = target_pose.copy()
 
     def set_target_joint(self, q: NDArray):
         """Set the target joint configuration.
@@ -451,7 +472,8 @@ class Robot:
         This callback is triggered periodically to publish the target pose
         to the ROS topic for the robot controller.
         """
-        target_pose = copy.deepcopy(self._target_pose)
+        with self._pose_lock:
+            target_pose = copy.deepcopy(self._target_pose)
         if target_pose is None or not rclpy.ok():
             return
         self._target_pose_publisher.publish(
@@ -588,9 +610,10 @@ class Robot:
         Args:
             msg (PoseStamped): ROS message containing the current pose.
         """
-        self._current_pose = Pose.from_ros_msg(msg)
-        if self._target_pose is None:
-            self._target_pose = self._current_pose.copy()
+        with self._pose_lock:
+            self._current_pose = Pose.from_ros_msg(msg)
+            if self._target_pose is None:
+                self._target_pose = self._current_pose.copy()
 
     def _callback_current_twist(self, msg: TwistStamped):
         """Update the current twist from a ROS message.
@@ -651,14 +674,25 @@ class Robot:
             pos = (1 - t) * start_pose.position + t * desired_pose.position
             ori = slerp([t])[0]
             next_pose = Pose(pos, ori)
-            self._target_pose = next_pose
+            with self._pose_lock:
+                self._target_pose = next_pose
             rate.sleep()
 
-        self._target_pose = desired_pose
+        with self._pose_lock:
+            self._target_pose = desired_pose
 
     def home(self, home_config: list[float] | None = None, blocking: bool = True):
         """Home the robot."""
-        self.controller_switcher_client.switch_controller("joint_trajectory_controller")
+        if home_config is not None and len(home_config) != self.nq:
+            # A wrong-size trajectory is silently REJECTED by the controller
+            # (invisible with blocking=False -> the robot just never moves),
+            # e.g. a 7-joint Franka HomeConfig sent to a 6-joint UR.
+            raise ValueError(
+                f"home_config has {len(home_config)} joints but this robot has "
+                f"{self.nq} ({self.config.joint_names}). Pass a config matching "
+                "the robot, or None to use the robot's own home_config."
+            )
+        self.controller_switcher_client.switch_controller(self.config.home_controller_name)
         self.joint_trajectory_controller_client.send_joint_config(
             self.config.joint_names,
             self.config.home_config if home_config is None else home_config,
@@ -667,7 +701,8 @@ class Robot:
         )
 
         # Set to none to avoid publishing the previous target pose after activating the next controller
-        self._target_pose = None
+        with self._pose_lock:
+            self._target_pose = None
         self._target_joint = None
 
         if blocking:
@@ -686,38 +721,27 @@ class Robot:
         joint_msg.effort = tau.tolist() if tau is not None else [0.0] * len(q)
         return joint_msg
 
+    def _joint_field_to_array(self, names, values) -> NDArray:
+        """Map (name, value) pairs from a JointState field onto config.joint_names order."""
+        out = np.zeros(self.nq)
+        for joint_name, value in zip(names, values):
+            key = joint_name.removeprefix(self._prefix)
+            if key not in self.config.joint_names:
+                continue
+            out[self.config.joint_names.index(key)] = value
+        return out.astype(np.float32)
+
     def ros_msg_to_joint(self, msg: JointState) -> NDArray:
         """Convert a joint state message to a numpy array of joint values."""
-        joint_values = np.zeros(self.nq)
-        for joint_name, joint_position in zip(msg.name, msg.position):
-            if joint_name.removeprefix(self._prefix) not in self.config.joint_names:
-                continue
-            joint_values[self.config.joint_names.index(joint_name.removeprefix(self._prefix))] = (
-                joint_position
-            )
-        return joint_values.astype(np.float32)
+        return self._joint_field_to_array(msg.name, msg.position)
 
     def _ros_msg_to_joint_velocity(self, msg: JointState) -> NDArray:
         """Convert a joint state message to a numpy array of joint velocities."""
-        joint_velocities = np.zeros(self.nq)
-        for joint_name, joint_velocity in zip(msg.name, msg.velocity):
-            if joint_name.removeprefix(self._prefix) not in self.config.joint_names:
-                continue
-            joint_velocities[self.config.joint_names.index(joint_name.removeprefix(self._prefix))] = (
-                joint_velocity
-            )
-        return joint_velocities.astype(np.float32)
+        return self._joint_field_to_array(msg.name, msg.velocity)
 
     def _ros_msg_to_joint_effort(self, msg: JointState) -> NDArray:
         """Convert a joint state message to a numpy array of joint efforts."""
-        joint_efforts = np.zeros(self.nq)
-        for joint_name, joint_effort in zip(msg.name, msg.effort):
-            if joint_name.removeprefix(self._prefix) not in self.config.joint_names:
-                continue
-            joint_efforts[self.config.joint_names.index(joint_name.removeprefix(self._prefix))] = (
-                joint_effort
-            )
-        return joint_efforts.astype(np.float32)
+        return self._joint_field_to_array(msg.name, msg.effort)
 
     def _parse_pose_or_position(
         self, position: List | NDArray | None = None, pose: Pose | None = None
@@ -746,7 +770,16 @@ class Robot:
         return np.allclose(self.joint_values, self.config.home_config, atol=1e-3)
 
     def shutdown(self):
-        """Shutdown the node."""
+        """Destroy this robot's node (if it created one) and shut down rclpy.
+
+        Note: rclpy.shutdown() is global — in a multi-object process, shut down
+        the LAST object only, or manage rclpy lifetime yourself.
+        """
+        if self._owns_node:
+            try:
+                self.node.destroy_node()
+            except Exception:
+                pass
         if rclpy.ok():
             rclpy.shutdown()
 

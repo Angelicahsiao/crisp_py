@@ -78,14 +78,34 @@ class ParametersClient:
             TimeoutError: If the services are not ready within the timeout period.
         """
         t_start = time.time()
-        while (
-            not self.get_params_client.service_is_ready()
-            and not self.list_params_client.service_is_ready()
-            and not self.set_parameters_client.service_is_ready()
+        # Wait until ALL three services are ready (a single `and` chain of
+        # negations would return as soon as ANY ONE became ready).
+        while not (
+            self.get_params_client.service_is_ready()
+            and self.list_params_client.service_is_ready()
+            and self.set_parameters_client.service_is_ready()
         ):
             time.sleep(0.01)
             if time.time() - t_start > timeout_sec:
                 raise TimeoutError("Waited too long for parameter services to be available.")
+
+
+    def _call(self, client, request, timeout_sec: float = 10.0):
+        """Call a service via call_async and wait with a timeout.
+
+        A synchronous client call deadlocks when the node is spun by a
+        separate thread and has no timeout; this is the safe equivalent.
+        """
+        future = client.call_async(request)
+        t_start = time.time()
+        while not future.done():
+            time.sleep(0.01)
+            if time.time() - t_start > timeout_sec:
+                raise TimeoutError(
+                    f"Parameter service call to {self.target_node} timed out "
+                    f"after {timeout_sec}s."
+                )
+        return future.result()
 
     def list_parameters(self) -> list[str]:
         """Retrieve a list of parameter names from the target node.
@@ -99,8 +119,8 @@ class ParametersClient:
         assert self.list_params_client.service_is_ready(), (
             f"Service for listing params is not ready, have you started the node {self.target_node}?"
         )
-        response: ListParameters.Response = self.list_params_client.call(
-            request=ListParameters.Request()
+        response: ListParameters.Response = self._call(
+            self.list_params_client, ListParameters.Request()
         )
         return [str(name) for name in response.result.names]
 
@@ -136,7 +156,7 @@ class ParametersClient:
         request = GetParameters.Request()
         request.names = param_names
 
-        response: GetParameters.Response = self.get_params_client.call(request)
+        response: GetParameters.Response = self._call(self.get_params_client, request)
         return list(response.values)
 
     def set_parameters(self, params: list[tuple[str, Any]]) -> None:
@@ -170,7 +190,7 @@ class ParametersClient:
 
         request = SetParameters.Request()
         request.parameters = updated_params
-        response = self.set_parameters_client.call(request=request)
+        response = self._call(self.set_parameters_client, request)
 
         succesful_results = [param_result.successful for param_result in response.results]
         if False in succesful_results:

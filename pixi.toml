@@ -51,6 +51,14 @@ ros-humble-rmw-zenoh-cpp = "*"
 ros-humble-rmw-cyclonedds-cpp = "*"
 rosdep = "*"
 libstdcxx-ng = "*"
+# scipy as a DIRECT conda dep so it is ABI-consistent with the robostack
+# numpy (1.26). robostack provides scipy transitively, but pixi/uv only
+# treats DIRECT conda deps as satisfying the pyproject pip `scipy`
+# requirement — otherwise uv installs the PyPI scipy wheel (built against
+# numpy 2.x), whose f2py modules break under numpy 1.26
+# (ImportError: cannot import name '_spropack'). Humble-only: jazzy keeps the
+# maintainers' pip-scipy-with-a-warning approach (see the jazzy feature).
+scipy = ">=1.10"
 
 [feature.humble.pypi-dependencies]
 viser = ">=1.0.16, <2"

@@ -1,7 +1,5 @@
-crisp_py/__pycache__
-crisp_py/control/__pycache__
-crisp_py/gripper/__pycache__
-crisp_py/camera/__pycache__
+__pycache__/
+*.pyc
 .ros_env.sh
 crisp_py.egg-info
 .pypirc

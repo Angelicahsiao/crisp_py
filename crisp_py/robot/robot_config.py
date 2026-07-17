@@ -20,7 +20,12 @@ class RobotConfig:
         base_frame (str): Name of the robot's base frame
         target_frame (str): Name of the robot's end-effector frame
         default_controller (str): Name of the default controller to use
-        cartesian_impedance_controller_name (str): Name of the Cartesian impedance controller
+        cartesian_impedance_controller_name (str): Name of the Cartesian impedance controller.
+        joint_trajectory_controller_name (str): Parameter-client target node of the
+            STREAMING joint controller (misleading name kept for compatibility).
+        home_controller_name (str): ros2_control controller used for homing
+            (FollowJointTrajectory action).
+        has_effort_feedback (bool): Whether JointState messages carry usable effort values.
         target_pose_topic (str): Topic name for publishing target poses
         target_joint_topic (str): Topic name for publishing target joint states
         target_stiffness_topic (str): Topic name for publishing target stiffness
@@ -33,6 +38,12 @@ class RobotConfig:
         use_tf_pose (bool): Whether to use TF for retrieving the target pose
         tf_retrieve_rate (float): Rate for retrieving TF transforms
         use_prefix (bool): Whether to use namespace prefix for joint names or not.
+        use_admittance_controller (bool): Create a ParametersClient for the
+            Cartesian admittance controller alongside the impedance one.
+        cartesian_admittance_controller_name (str): Parameter-client target
+            node of the admittance controller (when enabled).
+        target_admittance_stiffness_topic (str): Topic for publishing target
+            stiffness to the admittance controller (when enabled).
     """
 
     joint_names: list
@@ -45,6 +56,10 @@ class RobotConfig:
     cartesian_impedance_controller_name: str = "cartesian_impedance_controller"
     cartesian_admittance_controller_name: str = "cartesian_admittance_controller"
     joint_trajectory_controller_name: str = "joint_impedance_controller"
+    # ros2_control controller used for homing (FollowJointTrajectory action).
+    # Distinct from joint_trajectory_controller_name, which (despite the name)
+    # is the parameter-client target for the streaming joint controller.
+    home_controller_name: str = "joint_trajectory_controller"
 
     target_admittance_stiffness_topic: str = "target_admittance_stiffness"
 

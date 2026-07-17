@@ -1,5 +1,7 @@
 """Script to switch to a different ros2_controller."""
 
+import time
+
 import rclpy
 from controller_manager_msgs.srv import (
     ConfigureController,
@@ -68,6 +70,7 @@ class ControllerSwitcherClient:
             self.node.get_logger().debug(
                 "Waiting for controller list...", throttle_duration_sec=1.0
             )
+            time.sleep(0.01)  # avoid pegging a core
 
         response = future.result()
 
@@ -83,6 +86,7 @@ class ControllerSwitcherClient:
             self.node.get_logger().debug(
                 "Waiting for load controller answer...", throttle_duration_sec=1.0
             )
+            time.sleep(0.01)  # avoid pegging a core
         response = future.result()
 
         return response.ok
@@ -97,6 +101,7 @@ class ControllerSwitcherClient:
             self.node.get_logger().debug(
                 "Waiting for configure controller answer...", throttle_duration_sec=1.0
             )
+            time.sleep(0.01)  # avoid pegging a core
         response = future.result()
 
         return response.ok
@@ -116,6 +121,7 @@ class ControllerSwitcherClient:
             self.node.get_logger().debug(
                 "Waiting for switch controller answer...", throttle_duration_sec=1.0
             )
+            time.sleep(0.01)  # avoid pegging a core
         response = future.result()
 
         return response.ok
@@ -137,6 +143,11 @@ class ControllerSwitcherClient:
             controller_name (str): Name of the controller to switch to.
             controllers_that_should_be_active (list[str] | None): List of controller names to keep active or activate in the switch. Defaults to None.
         """
+        if not self.is_server_ready():
+            raise RuntimeError(
+                "controller_manager services are not available - is the robot "
+                "launch (ros2_control) running?"
+            )
         if controllers_that_should_be_active is None:
             controllers_that_should_be_active = []
 

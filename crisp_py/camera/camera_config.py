@@ -18,7 +18,22 @@ class CameraConfig:
 
     max_image_delay: float = 1.0
 
+    # NOTE: (HEIGHT, WIDTH) order — Camera unpacks `target_h, target_w = resolution`
+    # and the camera-info fallback stores (msg.height, msg.width). All shipped
+    # configs are square, which is why a (w, h) reading never bit anyone.
     resolution: list[int, int] | None = None
+
+    # Image transport:
+    #   "compressed" (default) -> subscribe CompressedImage on
+    #                             camera_color_image_topic + compressed_topic_suffix
+    #   "raw"                  -> subscribe sensor_msgs/Image on
+    #                             camera_color_image_topic as-is.
+    # Raw transport moves/stores UNCOMPRESSED frames — much higher bandwidth
+    # and (if recorded) storage; prefer compressed unless the publisher offers
+    # no compressed topic.
+    image_transport: str = "compressed"
+    compressed_topic_suffix: str = "/compressed"
+    image_encoding: str = "rgb8"
     crop_width: list[int | float, int | float] | None = None
     crop_height: list[int | float, int | float] | None = None
 
@@ -42,11 +57,19 @@ class CameraConfig:
         return cls(**data)
 
     def __post_init__(self):
-        """Post-initialization to validate resolution and cropping."""
+        """Post-initialization to validate transport, resolution and cropping."""
+        if self.image_transport not in ("compressed", "raw"):
+            raise ValueError(
+                f"image_transport must be 'compressed' or 'raw', got "
+                f"'{self.image_transport}'."
+            )
+
         if self.resolution is not None:
             if not (isinstance(self.resolution, (list, tuple)) and len(self.resolution) == 2):
                 raise ValueError(
-                    f"Resolution must be a list or tuple with (width, height). Got: {self.resolution} of type {type(self.resolution)}"
+                    "Resolution must be a list or tuple of (HEIGHT, WIDTH) — the "
+                    "code unpacks it as (h, w) and the camera-info fallback stores "
+                    f"(msg.height, msg.width). Got: {self.resolution} of type {type(self.resolution)}"
                 )
 
         if self.crop_width is not None:
@@ -96,12 +119,24 @@ class CameraConfig:
                 raise ValueError("Crop height start must be less than end.")
 
 
-class DummyCameraConfig:
-    """Dummy camera configuration class for testing purposes."""
+@dataclass(kw_only=True)
+class DummyCameraConfig(CameraConfig):
+    """Dummy camera configuration class for testing purposes.
+
+    Subclasses CameraConfig so it carries ALL fields the Camera code reads
+    (crop_width/crop_height included — the old plain class lacked them, so the
+    default Camera(config=None) raised AttributeError on the first image) and
+    runs the same __post_init__ validation.
+    """
 
     camera_color_image_topic: str = "dummy_camera/color/image_raw"
     camera_color_info_topic: str = "dummy_camera/color/camera_info"
-    resolution: tuple[int, int] = (640, 480)
+    resolution: list[int, int] | None = None
     camera_name: str = "dummy_camera"
     camera_frame: str = "dummy_camera_link"
-    max_image_delay: float = 1.0
+
+    def __post_init__(self):
+        """Default the resolution then run CameraConfig validation."""
+        if self.resolution is None:
+            self.resolution = [640, 480]
+        super().__post_init__()

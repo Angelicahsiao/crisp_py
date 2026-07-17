@@ -64,9 +64,29 @@ class Camera:
 
         self.cv_bridge = CvBridge()
 
+        # Transport selection (config.image_transport):
+        #   compressed (default) -> CompressedImage on topic + suffix
+        #   raw                  -> sensor_msgs/Image on the topic as-is
+        if self.config.image_transport == "raw":
+            msg_type = Image
+            image_topic = self.config.camera_color_image_topic
+            self.node.get_logger().warning(
+                f"Camera '{self.config.camera_name}' uses RAW (uncompressed) "
+                "image transport — every frame is moved and, if recorded, "
+                "stored uncompressed, which costs far more bandwidth/storage "
+                "than 'compressed'. Prefer image_transport: compressed unless "
+                "the publisher offers no compressed topic."
+            )
+        else:
+            msg_type = CompressedImage
+            image_topic = (
+                f"{self.config.camera_color_image_topic}"
+                f"{self.config.compressed_topic_suffix}"
+            )
+
         self._camera_subscriber = self.node.create_subscription(
-            CompressedImage,
-            f"{self.config.camera_color_image_topic}/compressed",
+            msg_type,
+            image_topic,
             self._callback_monitor.monitor(
                 f"{self._namespace.capitalize()} Camera {self.config.camera_name} Image".strip(),
                 self._callback_current_color_image,
@@ -77,9 +97,10 @@ class Camera:
         assert (
             self.config.camera_color_info_topic is not None or self.config.resolution is not None
         ), "You have to set resolution or camera info topic"
-        if self.config.camera_color_info_topic is None or self.config.resolution is None:
-            print(
-                "[Camera warning] You have set resolution and camera info topic, camera info topic will be ignored"
+        if self.config.camera_color_info_topic is not None and self.config.resolution is not None:
+            self.node.get_logger().info(
+                "Camera: both resolution and camera info topic are set — the "
+                "info topic is ignored (resolution wins)."
             )
         if self.config.camera_color_info_topic is not None:
             self.node.create_subscription(
@@ -160,10 +181,18 @@ class Camera:
             executor.spin_once(timeout_sec=0.1)
 
     def _uncompress(self, compressed_image: CompressedImage) -> Image:
-        """Uncompress a CompressedImage message to an Image message."""
+        """Uncompress a CompressedImage message to a numpy array."""
         return np.asarray(
-            self.cv_bridge.compressed_imgmsg_to_cv2(compressed_image, desired_encoding="rgb8")
+            self.cv_bridge.compressed_imgmsg_to_cv2(
+                compressed_image, desired_encoding=self.config.image_encoding
+            )
         )
+
+    def _decode(self, msg) -> np.ndarray:  # noqa: ANN001
+        """Decode an incoming image message according to the configured transport."""
+        if self.config.image_transport == "raw":
+            return self._image_to_array(msg)
+        return self._uncompress(msg)
 
     def has_image_changed_since_last_retrieval(self) -> bool:
         """Return true if the image has changed since the last time that the current_image has been accessed.
@@ -209,6 +238,24 @@ class Camera:
         """Returns True if camera image and resolution are available."""
         return self._current_image is not None and self.config.resolution is not None
 
+    @property
+    def is_stale(self) -> bool:
+        """True if the image stream stopped updating (publisher died mid-run).
+
+        is_ready()/current_image keep serving the LAST image after a stream
+        outage; consumers that must not act on frozen frames should check this.
+        """
+        for callback_name in self._callback_monitor.callbacks.keys():
+            if (
+                "Camera" in callback_name
+                and self.config.camera_name in callback_name
+                and "Image" in callback_name
+            ):
+                data = self._callback_monitor.get_callback_data(callback_name)
+                if data is not None:
+                    return bool(data.is_stale)
+        return False  # no monitor data yet — cannot judge staleness
+
     def wait_until_ready(self, timeout: float = 10.0, check_frequency: float = 10.0):
         """Wait until camera image and resolution are available."""
         rate = self.node.create_rate(check_frequency)
@@ -226,8 +273,19 @@ class Camera:
 
     def _callback_current_color_image(self, msg: CompressedImage):
         """Receive and store the current image."""
+        try:
+            image = self.ros_msg_to_image(msg)
+        except Exception as e:
+            # A corrupt/truncated frame (e.g. USB bandwidth glitches) must not
+            # raise inside the executor thread — drop it and keep the last
+            # good image; the staleness monitor flags a persistent outage.
+            self.node.get_logger().warning(
+                f"Dropping undecodable image on {self.config.camera_name}: {e}",
+                throttle_duration_sec=5.0,
+            )
+            return
         self._image_has_changed = True
-        self._current_image = self.ros_msg_to_image(msg)
+        self._current_image = image
 
     def _callback_current_color_info(self, msg: CameraInfo):
         """Receive and store the current camera info."""
@@ -236,7 +294,9 @@ class Camera:
 
     def _image_to_array(self, msg: Image) -> np.ndarray:
         """Converts an Image message to a numpy array."""
-        return np.asarray(self.cv_bridge.imgmsg_to_cv2(msg, desired_encoding="rgb8"))
+        return np.asarray(
+            self.cv_bridge.imgmsg_to_cv2(msg, desired_encoding=self.config.image_encoding)
+        )
 
     def _resize_with_aspect_ratio(
         self,
@@ -266,10 +326,10 @@ class Camera:
 
         return cropped_image
 
-    def ros_msg_to_image(self, msg: CompressedImage) -> np.ndarray:
-        """Convert a ROS message to numpy array for this camera configuration."""
+    def ros_msg_to_image(self, msg) -> np.ndarray:  # noqa: ANN001
+        """Convert a ROS image message (raw or compressed) to a numpy array."""
         return self._resize_with_aspect_ratio(
-            self._uncompress(msg),
+            self._decode(msg),
             target_res=self.config.resolution,
             crop_width=self.config.crop_width,
             crop_height=self.config.crop_height,
