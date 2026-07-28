@@ -12,7 +12,8 @@ platforms = ["linux-64"]
 scripts = ["scripts/set_ros_env.sh"]
 
 [dependencies]
-python = "*"
+#===============py312
+python = "3.12.*"
 compilers = "*"
 cmake = "*"
 pkg-config = "*"
@@ -51,6 +52,8 @@ ros-humble-rmw-zenoh-cpp = "*"
 ros-humble-rmw-cyclonedds-cpp = "*"
 rosdep = "*"
 libstdcxx-ng = "*"
+#===============py312
+numpy = ">2.0,<2.3"
 # scipy as a DIRECT conda dep so it is ABI-consistent with the robostack
 # numpy (1.26). robostack provides scipy transitively, but pixi/uv only
 # treats DIRECT conda deps as satisfying the pyproject pip `scipy`
