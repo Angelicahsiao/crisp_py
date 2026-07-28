@@ -12,8 +12,8 @@ platforms = ["linux-64"]
 scripts = ["scripts/set_ros_env.sh"]
 
 [dependencies]
-#===============py312
-python = "3.12.*"
+# python is pinned per-environment via the py311 / py312 features below,
+# so the humble stack can be built on either interpreter in parallel.
 compilers = "*"
 cmake = "*"
 pkg-config = "*"
@@ -33,11 +33,21 @@ view_diagnostics_jazzy = [{task="view_diagnostics", environment="jazzy"}]
 libgl-devel = "*"
 
 [environments]
-humble = { features = ["humble", "crisp-py", "extra", "dev"] }
-jazzy = { features = ["jazzy", "crisp-py", "extra", "dev"] }
-humble-viser = { features = ["jazzy", "viser", "crisp-py", "extra", "dev"] }
-jazzy-viser = { features = ["jazzy", "viser", "crisp-py", "extra", "dev"] }
-humble-clean = { features = ["humble"] }
+# --- Python 3.11 (previous default; numpy 1.26 from robostack) ---
+humble = { features = ["humble", "crisp-py", "extra", "dev", "py311"] }
+jazzy = { features = ["jazzy", "crisp-py", "extra", "dev", "py311"] }
+humble-viser = { features = ["jazzy", "viser", "crisp-py", "extra", "dev", "py311"] }
+jazzy-viser = { features = ["jazzy", "viser", "crisp-py", "extra", "dev", "py311"] }
+humble-clean = { features = ["humble", "py311"] }
+# --- Python 3.12 (parallel; numpy 2) ---
+humble-py312 = { features = ["humble", "crisp-py", "extra", "dev", "py312"] }
+
+[feature.py311.dependencies]
+python = "3.11.*"
+
+[feature.py312.dependencies]
+python = "3.12.*"
+numpy = ">2.0,<2.3"
 
 # humble
 [feature.humble]
@@ -52,8 +62,8 @@ ros-humble-rmw-zenoh-cpp = "*"
 ros-humble-rmw-cyclonedds-cpp = "*"
 rosdep = "*"
 libstdcxx-ng = "*"
-#===============py312
-numpy = ">2.0,<2.3"
+# numpy is pinned in the py312 feature only (numpy 2). On py311 numpy comes
+# from robostack (1.26); see the py311/py312 features below.
 # scipy as a DIRECT conda dep so it is ABI-consistent with the robostack
 # numpy (1.26). robostack provides scipy transitively, but pixi/uv only
 # treats DIRECT conda deps as satisfying the pyproject pip `scipy`
