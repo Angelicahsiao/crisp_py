@@ -12,8 +12,7 @@ platforms = ["linux-64"]
 scripts = ["scripts/set_ros_env.sh"]
 
 [dependencies]
-# python is pinned per-environment via the py311 / py312 features below,
-# so the humble stack can be built on either interpreter in parallel.
+python = "*"
 compilers = "*"
 cmake = "*"
 pkg-config = "*"
@@ -33,23 +32,11 @@ view_diagnostics_jazzy = [{task="view_diagnostics", environment="jazzy"}]
 libgl-devel = "*"
 
 [environments]
-# --- Python 3.11 (previous default; numpy 1.26 from robostack) ---
-humble = { features = ["humble", "crisp-py", "extra", "dev", "py311"] }
-jazzy = { features = ["jazzy", "crisp-py", "extra", "dev", "py311"] }
-humble-viser = { features = ["jazzy", "viser", "crisp-py", "extra", "dev", "py311"] }
-jazzy-viser = { features = ["jazzy", "viser", "crisp-py", "extra", "dev", "py311"] }
-humble-clean = { features = ["humble", "py311"] }
-# --- Python 3.12 (parallel; still numpy 1.26 — cv-bridge blocks numpy 2) ---
-humble-py312 = { features = ["humble", "crisp-py", "extra", "dev", "py312"] }
-
-[feature.py311.dependencies]
-python = "3.11.*"
-
-[feature.py312.dependencies]
-python = "3.12.*"
-# numpy intentionally unpinned: robostack-humble's cv-bridge (pulled by
-# ros-humble-desktop) is built against numpy <2, so humble envs use robostack
-# numpy (1.26) even on Python 3.12. Pinning numpy>=2 fails the humble solve.
+humble = { features = ["humble", "crisp-py", "extra", "dev"] }
+jazzy = { features = ["jazzy", "crisp-py", "extra", "dev"] }
+humble-viser = { features = ["jazzy", "viser", "crisp-py", "extra", "dev"] }
+jazzy-viser = { features = ["jazzy", "viser", "crisp-py", "extra", "dev"] }
+humble-clean = { features = ["humble"] }
 
 # humble
 [feature.humble]
@@ -64,8 +51,6 @@ ros-humble-rmw-zenoh-cpp = "*"
 ros-humble-rmw-cyclonedds-cpp = "*"
 rosdep = "*"
 libstdcxx-ng = "*"
-# numpy comes from robostack (1.26) on ALL humble envs — cv-bridge (via
-# ros-humble-desktop) requires numpy <2, so numpy is not pinned per-python.
 # scipy as a DIRECT conda dep so it is ABI-consistent with the robostack
 # numpy (1.26). robostack provides scipy transitively, but pixi/uv only
 # treats DIRECT conda deps as satisfying the pyproject pip `scipy`
