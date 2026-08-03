@@ -159,7 +159,7 @@ class ParametersClient:
         response: GetParameters.Response = self._call(self.get_params_client, request)
         return list(response.values)
 
-    def set_parameters(self, params: list[tuple[str, Any]]) -> None:
+    def set_parameters(self, params: list[tuple[str, Any]], skip_missing: bool = False) -> None:
         """Set parameters on the target node with new values.
 
         This function first ensures the parameters exist, then attempts to set them. It raises
@@ -167,10 +167,15 @@ class ParametersClient:
 
         Args:
             params: List of tuples of param names to change and the new param values
+            skip_missing: If True, skip (with a warning) any param that is not
+                declared on the target node instead of raising, then set the rest.
+                Useful when loading a saved config whose params may not all exist
+                on a given controller build. Defaults to False.
 
         Raises:
             AssertionError: If the number of names and values do not match or the service is not ready.
-            ValueError: If any of the parameters do not currently exist on the target node.
+            ValueError: If any of the parameters do not currently exist on the target node
+                (only when skip_missing is False).
             RuntimeError: If setting any parameter fails or no results are returned.
         """
         assert self.set_parameters_client.service_is_ready(), (
@@ -178,10 +183,24 @@ class ParametersClient:
         )
         param_names, new_param_values = zip(*params)
         current_parameters = self.get_parameters(list(param_names))
-        if None in current_parameters:
-            raise ValueError(
-                f"One of the passed elements in the array of params does not exist: {[(name, value) for name, value in zip(param_names, current_parameters)]}"
+        missing = [name for name, cur in zip(param_names, current_parameters) if cur is None]
+        if missing:
+            if not skip_missing:
+                raise ValueError(
+                    f"One of the passed elements in the array of params does not exist: {[(name, value) for name, value in zip(param_names, current_parameters)]}"
+                )
+            self.node.get_logger().warn(
+                f"Skipping {len(missing)} parameter(s) not declared on "
+                f"{self.target_node}: {missing}"
             )
+            kept = [
+                (name, value)
+                for name, value, cur in zip(param_names, new_param_values, current_parameters)
+                if cur is not None
+            ]
+            if not kept:
+                return
+            param_names, new_param_values = zip(*kept)
 
         updated_params = []
         for param_name, new_param_value in zip(param_names, new_param_values):
@@ -224,4 +243,8 @@ class ParametersClient:
         with open(file_path, "r") as input_file:
             params_dict: dict = yaml.safe_load(input_file)
         params: list = [(name, value) for name, value in params_dict.items()]
-        self.set_parameters(params)
+        # Tolerate configs whose params are not all declared on this particular
+        # controller build (e.g. per-joint nullspace weights that a given
+        # controller / joint-naming does not expose): skip them with a warning
+        # rather than aborting the whole load.
+        self.set_parameters(params, skip_missing=True)
