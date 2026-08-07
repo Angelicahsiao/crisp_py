@@ -6,7 +6,7 @@
 # container start with `pixi install -e humble`. That keeps the image small and
 # lets you edit crisp_py on the host with changes visible immediately.
 
-FROM ghcr.io/prefix-dev/pixi:0.63.2-jammy
+FROM ghcr.io/prefix-dev/pixi:0.74.0-jammy
 
 USER root
 
