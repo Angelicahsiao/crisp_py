@@ -133,8 +133,41 @@ class Sensor(ABC):
 
     def _sensor_callback(self, msg: Any):
         """Internal callback for sensor data subscription."""
-        self._value = self.ros_msg_to_sensor_value(msg)
+        value = self.ros_msg_to_sensor_value(msg)
+        if self.config.indices is not None:
+            value = self._select_indices(value)
+        self._value = value
         self._buffer.add(self._value)
+
+    def _select_indices(self, value: np.ndarray) -> np.ndarray:
+        """Keep only config.indices of a converted sensor value.
+
+        Args:
+            value: The array returned by the sensor spec's conversion function.
+
+        Returns:
+            np.ndarray: The selected elements, in the order given by indices.
+
+        Raises:
+            IndexError: If any index is out of range for the received message.
+                Raised rather than clipped: a publisher whose layout changed
+                would otherwise keep recording plausible-looking values taken
+                from the wrong elements.
+        """
+        indices = self.config.indices
+        assert indices is not None
+        value = np.asarray(value)
+        if value.ndim != 1:
+            raise IndexError(
+                f"sensor '{self.config.name}': indices are only supported for 1-D "
+                f"values, got shape {value.shape} from {self.config.data_topic}."
+            )
+        if value.size and max(indices) >= value.size:
+            raise IndexError(
+                f"sensor '{self.config.name}': indices {indices} exceed the "
+                f"{value.size} values published on {self.config.data_topic}."
+            )
+        return value[indices]
 
     @property
     def value(self) -> np.ndarray:
