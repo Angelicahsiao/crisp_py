@@ -20,6 +20,17 @@ class SensorConfig:
     buffer_size: int | None = None
     reset_service: str | None = None
 
+    # Optional element selection applied AFTER the sensor spec's conversion.
+    # For publishers that carry more than you want to record — e.g. franka's
+    # external_joint_torques lists the 7 arm joints followed by the gripper
+    # knuckle joints, so indices [0..6] keeps the arm only. `shape` must
+    # describe the value AFTER selection.
+    #
+    # Nothing validates a converted value against `shape` (it is merely the
+    # zeros fill-value used before the first message arrives), so a size
+    # mismatch would otherwise stay invisible until the dataset write failed.
+    indices: list[int] | None = None
+
     @classmethod
     def from_yaml(cls, yaml_path: Path, **overrides) -> "SensorConfig":  # noqa: ANN003
         """Load config from YAML file with optional overrides.
